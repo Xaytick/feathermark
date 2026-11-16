@@ -180,10 +180,15 @@ fn client() -> Result<reqwest::Client, String> {
 }
 
 /// 主调用：把 messages 发给模型，返回正文 + 用量 + 耗时。
+/// 主调用：把 messages 发给模型，返回正文 + 用量 + 耗时。
+/// max_tokens / temperature 可按次覆盖：补丁式编辑只需要很短的输出，把上限压小既省钱也更快，
+/// 而整篇改写（回退路径）需要更大的空间。
 #[tauri::command]
 pub async fn ai_chat(
     app: tauri::AppHandle,
     messages: Vec<ChatMessage>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
 ) -> Result<serde_json::Value, String> {
     let cfg = load_config(&app)?;
     if cfg.base_url.trim().is_empty() || cfg.model.trim().is_empty() {
@@ -196,8 +201,8 @@ pub async fn ai_chat(
     let body = serde_json::json!({
         "model": cfg.model,
         "messages": messages,
-        "temperature": cfg.temperature,
-        "max_tokens": cfg.max_tokens,
+        "temperature": temperature.unwrap_or(cfg.temperature),
+        "max_tokens": max_tokens.unwrap_or(cfg.max_tokens),
         "stream": false,
     });
 
@@ -242,6 +247,8 @@ pub async fn ai_chat(
         "content": content,
         "model": value["model"].as_str().unwrap_or(&cfg.model),
         "usage": value["usage"],
+        // length = 撞到 max_tokens 被截断：前端据此判定「补丁不完整」，而不是猜 END 有没有写
+        "finish_reason": value["choices"][0]["finish_reason"].as_str().unwrap_or(""),
         "latency_ms": started.elapsed().as_millis(),
     }))
 }
@@ -256,6 +263,8 @@ pub async fn ai_test(app: tauri::AppHandle) -> Result<serde_json::Value, String>
             role: "user".into(),
             content: "只回复两个字：可用".into(),
         }],
+        Some(16),
+        Some(0.0),
     )
     .await?;
     Ok(serde_json::json!({

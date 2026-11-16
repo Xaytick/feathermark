@@ -1,13 +1,14 @@
-// AI 编辑：把「选中内容 / 整篇」交给模型做轻量改写，先看差异再决定是否替换。
+// AI 编辑面板：负责交互与展示，真正的「怎么让模型少说话」在 agent.js 里。
 //
 // 设计原则：
 // - 永不自动改写：必须先点「生成」，再逐块或整篇应用；应用走 CodeMirror 的替换操作，⌘Z 可撤销。
-// - 先看再改：结果按「改动块（hunk）」呈现，每块可单独勾选，能只接受其中几处；
-//   改动行内还会标出字符级差异，避免「黑箱替换」。
-// - 只发必要内容：选中就只发选中部分；整篇会提示字数，避免误发整篇长文。
+// - 先看再改：结果按「改动块（hunk）」呈现，每块可单独勾选；改动行内标出字符级差异。
+// - 补丁式生成：模型只输出要改的行（见 agent.js），输出 token 通常只有整篇改写的十分之一。
+// - 只发必要内容：选区模式只发选区与两行上下文；整篇会提示行数。
 // - 密钥不出现在这里：所有请求都经 Rust 侧转发，前端拿不到 API Key。
 import * as ipc from './ipc.js';
 import { toast } from './ui.js';
+import { runAgent } from './agent.js';
 
 const ACTIONS = [
   {
@@ -54,29 +55,6 @@ const ACTIONS = [
   },
   { id: 'custom', label: '自定义', hint: '只用下面那句要求', prompt: '' },
 ];
-
-const SYSTEM_PROMPT = `你是 Markdown 文档编辑器里的文字编辑，负责按指令做小范围改写。
-
-硬性规则：
-1. 只输出处理后的 Markdown 正文。不要写「以下是修改后的内容」这类前言，不要解释你做了什么。
-2. 除任务明确要求外，不要改动 Markdown 结构：标题层级、列表、表格、链接、图片、代码块、引用块都要保持原样。
-3. 不要用代码围栏把整篇文章包起来。
-4. 保持原文语言（任务要求翻译时除外）。
-5. 宁可少改，不要过度发挥；不确定的地方保持原样。`;
-
-function cleanOutput(raw) {
-  let text = String(raw || '').replace(/\r\n/g, '\n').trim();
-  // 模型有时会把整篇包进 ```markdown ... ``` 里
-  const fenced = text.match(/^```(?:markdown|md)?\n([\s\S]*?)\n?```$/i);
-  if (fenced) text = fenced[1].trim();
-  // 去掉「润色后如下：」这类一眼能认出来的前缀（只在前缀很短且以冒号结尾时）
-  const lines = text.split('\n');
-  if (lines.length > 1 && /[：:]\s*$/.test(lines[0]) && lines[0].length <= 24 && !/^[#>\-*|`]/.test(lines[0])) {
-    lines.shift();
-    text = lines.join('\n').trim();
-  }
-  return text;
-}
 
 /* ------------------------------------------------------------------ diff */
 /** 行级 LCS。规模过大时返回 null，调用方退化成纯文本对照。 */
@@ -404,19 +382,35 @@ export function createAi({ editor, onNeedConfig }) {
 
   function captureScope() {
     const cm = editor.cm;
+    const docText = cm.getValue();
+    const docLines = docText.split('\n');
     const hasSel = cm.somethingSelected();
-    const snapshot = cm.getValue();
-    const text = hasSel ? cm.getSelection() : snapshot;
+
+    let fromLine = 1;
+    let toLine = docLines.length;
+    if (hasSel) {
+      const a = cm.getCursor('from');
+      const b = cm.getCursor('to');
+      fromLine = Math.min(a.line, b.line) + 1;
+      toLine = Math.max(a.line, b.line) + 1;
+      // 行级补丁：选区落在行中间时按整行处理，模型看到的是整行，没改的部分会原样保留
+    }
+
+    const baseLines = docLines.slice(fromLine - 1, toLine);
     scope = {
       mode: hasSel ? 'selection' : 'doc',
-      from: hasSel ? cm.getCursor('from') : { line: 0, ch: 0 },
-      to: hasSel ? cm.getCursor('to') : cm.posFromIndex(snapshot.length),
-      text,
-      snapshot,
+      isSelection: hasSel,
+      fromLine,
+      toLine,
+      docLines,
+      text: baseLines.join('\n'),
+      snapshot: docText,
+      from: { line: fromLine - 1, ch: 0 },
+      to: { line: toLine - 1, ch: (docLines[toLine - 1] || '').length },
     };
     scopeEl.textContent = hasSel
-      ? `选中 ${text.length} 字 · 只替换选中部分`
-      : `整篇 ${text.length} 字 · 会替换全文`;
+      ? `选中 ${toLine - fromLine + 1} 行 · 只替换这几行`
+      : `整篇 ${docLines.length} 行 · 会替换全文`;
     return scope;
   }
 
@@ -443,7 +437,7 @@ export function createAi({ editor, onNeedConfig }) {
     btnApplyAll.classList.add('hidden');
     btnGen.classList.remove('hidden');
     showHint(
-      '选好动作后点「生成」。只把上面标明的范围发给模型，先看差异再决定应用——每一处改动都能单独勾选。'
+      '选好动作后点「生成」。模型只回编辑指令（改哪几行、改成什么），本地打补丁后再给你看差异——每一处都能单独勾选。'
     );
   }
 
@@ -459,25 +453,23 @@ export function createAi({ editor, onNeedConfig }) {
     btnApply.disabled = accepted === 0;
     btnApplyAll.classList.toggle('hidden', !partial);
     metaEl.classList.remove('error');
-    metaEl.textContent = `${result.model || '模型'} · ${took(result.latency)}${
-      result.tokens ? ` · ${result.tokens} tokens` : ''
-    } · ${total} 处改动`;
+    const parts = [result.model || '模型'];
+    parts.push(result.mode === 'patch' ? `补丁 ${result.edits || total} 处` : '整篇改写');
+    if (result.promptTokens || result.completionTokens) {
+      parts.push(`入 ${result.promptTokens} / 出 ${result.completionTokens} tokens`);
+    }
+    parts.push(took(result.latency));
+    if (result.rounds > 1) parts.push(`修正 ${result.rounds - 1} 次`);
+    parts.push(`${total} 处改动`);
+    metaEl.textContent = parts.join(' · ');
   }
 
-  function buildMessages() {
+  /** 任务描述：动作内置的约束 + 用户补充要求。 */
+  function buildTask() {
     const act = ACTIONS.find((a) => a.id === action) || ACTIONS[0];
     const instruction = instructionEl.value.trim();
-    const parts = [];
-    parts.push(`【任务】${act.prompt || instruction}`);
-    if (act.prompt && instruction) parts.push(`【额外要求】${instruction}`);
-    parts.push(
-      `【输出格式】只输出处理后的 Markdown 正文${scope.mode === 'selection' ? '，不要带任何前后缀说明' : ''}。`
-    );
-    parts.push(`【原文】\n<<<\n${scope.text}\n>>>`);
-    return [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: parts.join('\n\n') },
-    ];
+    if (!act.prompt) return instruction;
+    return instruction ? `${act.prompt}\n补充要求：${instruction}` : act.prompt;
   }
 
   async function generate() {
@@ -494,9 +486,6 @@ export function createAi({ editor, onNeedConfig }) {
       instructionEl.focus();
       return;
     }
-    if (scope.mode === 'doc' && scope.text.length > 8000) {
-      toast('整篇较长，建议先选中一段再处理，避免输出被截断', { error: true, duration: 3200 });
-    }
 
     setBusy(true);
     btnApply.classList.add('hidden');
@@ -504,22 +493,42 @@ export function createAi({ editor, onNeedConfig }) {
     hintEl.classList.add('hidden');
     diffEl.classList.remove('hidden');
     diffEl.className = 'ai-diff loading';
-    diffEl.textContent = '正在请求模型…';
+    diffEl.textContent = '正在生成编辑指令…';
     metaEl.classList.remove('error');
     metaEl.textContent = '';
 
     try {
-      const res = await ipc.aiChat(buildMessages());
-      const text = cleanOutput(res.content);
-      const tokens =
-        res.usage && (res.usage.total_tokens || (res.usage.prompt_tokens || 0) + (res.usage.completion_tokens || 0));
-      result = { text, model: res.model, latency: res.latency_ms, tokens };
-      view = buildDiffView(scope.text, text);
+      const res = await runAgent({
+        task: buildTask(),
+        actionId: action,
+        docLines: scope.docLines,
+        fromLine: scope.fromLine,
+        toLine: scope.toLine,
+        isSelection: scope.isSelection,
+        onStage: (msg) => {
+          if (diffEl.className.includes('loading')) diffEl.textContent = msg;
+        },
+      });
+
+      result = {
+        text: res.text,
+        model: res.stats.model,
+        latency: res.stats.latency,
+        promptTokens: res.stats.promptTokens,
+        completionTokens: res.stats.completionTokens,
+        mode: res.mode,
+        rounds: res.rounds,
+        edits: res.edits,
+        warnings: res.warnings || [],
+      };
+      view = buildDiffView(scope.text, res.text);
       view.onSelectionChange(refreshApplyState);
 
       diffEl.className = 'ai-diff';
       diffEl.innerHTML = '';
       diffEl.appendChild(view.node);
+
+      if (result.warnings.length) toast(result.warnings[0], { duration: 3200 });
 
       btnApply.classList.remove('hidden');
       btnGen.classList.add('hidden');

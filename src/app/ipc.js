@@ -54,7 +54,13 @@ export const openDevtools = () => call('open_devtools');
 export const aiConfigGet = () => call('ai_config_get');
 export const aiConfigSet = (cfg) => call('ai_config_set', cfg);
 export const aiConfigClearKey = () => call('ai_config_clear_key');
-export const aiChat = (messages) => call('ai_chat', { messages });
+// maxTokens / temperature 可按次覆盖：补丁式编辑输出很短，把上限压小既省 token 也更快
+export const aiChat = (messages, opts = {}) =>
+  call('ai_chat', {
+    messages,
+    maxTokens: opts.maxTokens ?? null,
+    temperature: opts.temperature ?? null,
+  });
 export const aiTest = () => call('ai_test');
 export const aiModels = () => call('ai_models');
 
