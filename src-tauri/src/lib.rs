@@ -13,6 +13,8 @@ use notify::{Config as NotifyConfig, Event as NotifyEvent, RecommendedWatcher, R
 use std::fs;
 use std::ops::Deref;
 use std::sync::Mutex;
+mod ai;
+
 use tauri::{Emitter, Manager};
 
 // ---------------------------------------------------------------- 基础工具
@@ -870,6 +872,12 @@ pub fn run() {
             list_system_fonts,
             search_in_files,
             search_files,
+            ai::ai_config_get,
+            ai::ai_config_set,
+            ai::ai_config_clear_key,
+            ai::ai_chat,
+            ai::ai_test,
+            ai::ai_models,
         ])
         .run(tauri::generate_context!())
         .expect("启动 FeatherMark 失败");

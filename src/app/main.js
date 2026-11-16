@@ -12,6 +12,7 @@ import { createTree } from './tree.js';
 import { createSearch } from './search.js';
 import { createQuickOpen } from './quickopen.js';
 import { createSettings } from './settings.js';
+import { createAi } from './ai.js';
 import * as exporters from './exporters.js';
 import * as ui from './ui.js';
 
@@ -35,6 +36,7 @@ let tree = null;
 let search = null;
 let quickopen = null;
 let settings = null;
+let ai = null;
 
 const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
 const uid = () => 't' + Math.random().toString(36).slice(2, 9);
@@ -531,6 +533,7 @@ function openMoreMenu() {
     { label: '新建', hint: '⌘N', onClick: () => newFile() },
     { label: '打开文件…', hint: '⌘O', onClick: () => pickAndOpen() },
     { label: '打开文件夹…', onClick: () => pickFolderAndOpen() },
+    { label: 'AI 编辑…', hint: '⌘J', onClick: () => ai && ai.open() },
     { sep: true },
     { label: '保存', hint: '⌘S', onClick: () => saveTab() },
     { label: '另存为…', hint: '⇧⌘S', onClick: () => saveTab(activeTab(), { as: true }) },
@@ -688,6 +691,10 @@ function setupShortcuts() {
         case ',':
           e.preventDefault();
           openSettings();
+          return;
+        case 'j':
+          e.preventDefault();
+          if (ai) ai.open();
           return;
         case '=':
         case '+':
@@ -855,6 +862,8 @@ async function boot() {
   // 设置
   settings = createSettings({ body: $('settings-body'), onApply: onPrefChange });
 
+  ai = createAi({ editor, onNeedConfig: () => openSettings() });
+
   $('editor-pane').appendChild($('findbar'));
   findByCtl = setupFind();
 
@@ -896,6 +905,7 @@ async function boot() {
     });
   });
 
+  $('sb-ai').addEventListener('click', () => ai.open());
   $('sb-wrap').addEventListener('click', () => {
     prefs.lineWrap = !prefs.lineWrap;
     savePrefs();

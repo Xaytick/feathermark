@@ -128,6 +128,7 @@
       <div class="sb-right">
         <span id="sb-words" class="sb-item">0 字</span>
         <span id="sb-cursor" class="sb-item">行 1, 列 1</span>
+        <button class="sb-btn ai-btn" id="sb-ai" title="AI 编辑 (⌘J)">AI 编辑</button>
         <button class="sb-btn" id="sb-wrap" title="自动换行">换行</button>
         <button class="sb-btn" id="sb-split-dir" title="切换分屏方向">左右</button>
         <button class="sb-btn" id="sb-sidebar" title="侧边栏">侧栏</button>
@@ -166,6 +167,44 @@
       <footer class="settings-foot">
         <button class="btn ghost" id="settings-reset">恢复默认</button>
         <span class="settings-hint">改动即时生效并保存在本地</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- AI 编辑 -->
+  <div id="ai-dialog" class="overlay hidden">
+    <div class="ai-box">
+      <header class="ai-head">
+        <div class="ai-title">
+          <svg viewBox="0 0 24 24" class="ai-spark"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z" /><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" /></svg>
+          AI 编辑
+        </div>
+        <span id="ai-scope" class="ai-scope"></span>
+        <button class="mini-btn" id="ai-close" title="关闭 (Esc)">✕</button>
+      </header>
+
+      <div class="ai-chips" id="ai-chips"></div>
+
+      <div class="ai-input-row">
+        <input id="ai-instruction" type="text" spellcheck="false"
+               placeholder="补充要求（可选）：例如「保持学术语气」「术语不要翻译」" />
+      </div>
+
+      <div class="ai-body">
+        <div class="ai-hint" id="ai-hint">
+          选好动作后点「生成」。只把下面标明的范围发给模型，先看差异再决定应用。
+        </div>
+        <div class="ai-diff hidden" id="ai-diff"></div>
+      </div>
+
+      <footer class="ai-foot">
+        <span class="ai-meta" id="ai-meta"></span>
+        <div class="ai-foot-actions">
+          <button class="btn ghost" id="ai-cancel">取消</button>
+          <button class="btn ghost" id="ai-regen">重新生成</button>
+          <button class="btn" id="ai-generate">生成</button>
+          <button class="btn success hidden" id="ai-apply">应用替换</button>
+        </div>
       </footer>
     </div>
   </div>

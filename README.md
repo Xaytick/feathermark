@@ -11,6 +11,8 @@
 
 ![深色主题](docs/screenshot-dark.png)
 
+![AI 编辑](docs/screenshot-ai.png)
+
 ## 为什么是它
 
 | 常见痛点 | 这个项目的做法 |
@@ -36,6 +38,14 @@
 - 提示块 `> [!NOTE]` `> [!TIP]` `> [!WARNING]` `> [!CAUTION]`
 - 脚注、定义列表、`[TOC]`、emoji 短码、HTML 净化（rehype-sanitize + 字符串级兜底）
 - 图片点击放大：滚轮以光标为锚点缩放、拖动平移、双击复位
+
+**AI 编辑（⌘J）**
+- 选中一段（或整篇）→ 选动作：润色 / 精简 / 扩写 / 排版整理 / 纠错 / 译成英文 / 自定义要求
+- 「排版整理」只动 Markdown 结构，不改一个字；「润色/精简/扩写」只改文字，不动结构
+- 生成后先看**行级 diff**（改动处精确到字符），确认再「应用替换」；替换走编辑器操作，⌘Z 可撤销
+- 只把标明的范围发给模型；整篇处理会提示字数，避免误发长文
+- 支持任意 OpenAI 兼容接口：DeepSeek / OpenAI / Moonshot / 智谱 / 本地 Ollama / 自建 vLLM
+- API Key 只存在本机配置文件（权限 600），不写浏览器存储、不经过任何第三方中转
 
 **工作区**
 - 打开文件夹 → 左侧文件树，右键新建 / 重命名 / 删除 / 在文件管理器中显示
@@ -63,6 +73,7 @@
 | 快速打开 | `⌘P` | 查找替换 | `⌘F` |
 | 工作区搜索 | `⇧⌘F` | 切换分屏方向 | `⌘\` |
 | 放大 / 缩小字号 | `⌘=` / `⌘-` | 导出 HTML | `⇧⌘E` |
+| AI 编辑 | `⌘J` | 生成 / 应用（AI 面板内） | `⌘↩` |
 
 ## 开发
 
@@ -90,12 +101,14 @@ src/
 │   ├── preview.js        渲染 + KaTeX/Mermaid/hljs 后处理 + 滚动换算
 │   ├── tree.js           工作区文件树
 │   ├── tabs.js / search.js / quickopen.js / settings.js
+│   ├── ai.js             AI 编辑：动作模板、请求编排、行级 diff
 │   ├── exporters.js      HTML / PNG / PDF 导出
 │   ├── store.js          偏好与会话持久化
 │   └── ui.js             toast / 菜单 / 分隔条 / 图片查看器
 └── lib/                  构建产物（CodeMirror、KaTeX、两个 esbuild bundle，已 gitignore）
 src-tauri/
 ├── src/lib.rs            文件读写、目录树、监听、图片入库、字体枚举、全文搜索
+├── src/ai.rs             AI 配置（本机 0600）+ OpenAI 兼容接口转发（密钥不出 Rust）
 ├── tauri.conf.json       窗口与打包配置
 └── tauri.macos.conf.json macOS 专属：系统红绿灯 + Overlay 标题栏
 ```
@@ -105,6 +118,7 @@ src-tauri/
 - 目前**没有**即时渲染（WYSIWYG）编辑模式，是「源码 + 实时预览」的分屏形态
 - 大文档做了渲染防抖与滚动位置换算，但没有做虚拟滚动；十万行级文档建议拆文件
 - 界面仅中文
+- AI 调用是非流式的（等整段返回），单次输出受模型 `max_tokens` 限制；整篇超长文档建议分段处理
 - 只在 macOS（Apple Silicon）上实测过；Windows / Linux 的三平台代码路径都已写好（自绘标题栏、`explorer /select`、`xdg-open`），但未实机验证
 
 ## 许可

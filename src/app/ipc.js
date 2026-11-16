@@ -49,6 +49,15 @@ export const windowAction = (action) => call('window_action', { action });
 export const quitApp = () => call('quit_app');
 export const openDevtools = () => call('open_devtools');
 
+/* ------------------------------------------------------------------ AI */
+// 所有 AI 请求都经 Rust 转发：密钥只留在 Rust 侧的配置文件里，前端拿不到明文。
+export const aiConfigGet = () => call('ai_config_get');
+export const aiConfigSet = (cfg) => call('ai_config_set', cfg);
+export const aiConfigClearKey = () => call('ai_config_clear_key');
+export const aiChat = (messages) => call('ai_chat', { messages });
+export const aiTest = () => call('ai_test');
+export const aiModels = () => call('ai_models');
+
 /* ------------------------------------------------------------------ 对话框 */
 const MD_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'mkd', 'txt'] },
