@@ -1,0 +1,38 @@
+[package]
+name = "feathermark"
+version = "0.1.0"
+description = "FeatherMark — a lightweight cross-platform Markdown editor"
+authors = ["FeatherMark"]
+edition = "2021"
+license = "GPL-3.0"
+
+[lib]
+name = "feathermark_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.5", features = ["protocol-asset", "devtools"] }
+tauri-plugin-dialog = "2.2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+notify = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+encoding_rs = "0.8"
+md-5 = "0.10"
+imagesize = "0.13"
+regex = "1"
+base64 = "0.22"
+# 远端图片内联（导出单文件 HTML 时把网络图片转 base64），纯 rustls 不依赖系统 OpenSSL
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+# 系统字体枚举（纯 Rust，Windows/macOS/Linux 统一走 fontdb）
+fontdb = "0.24"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

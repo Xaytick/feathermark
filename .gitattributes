@@ -1,0 +1,16 @@
+# 统一换行符：源码一律 LF，二进制文件不要做转换
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.icns binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+
+# GitHub 语言统计时不把生成产物算进去
+package-lock.json linguist-generated=true
