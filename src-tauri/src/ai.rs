@@ -26,6 +26,12 @@ pub struct AiConfig {
     pub temperature: f32,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    /// 服务商特有参数，存 JSON 对象文本；会在请求体最后合并（如 thinking / reasoning_effort）
+    #[serde(default = "default_extra_body")]
+    pub extra_body: String,
+    /// 有些模型（Kimi K3、GLM-5.3 等）固定温度或拒绝 temperature，必须整个字段不发
+    #[serde(default)]
+    pub skip_temperature: bool,
 }
 
 fn default_temperature() -> f32 {
@@ -34,16 +40,21 @@ fn default_temperature() -> f32 {
 fn default_max_tokens() -> u32 {
     4096
 }
+fn default_extra_body() -> String {
+    "{}".to_string()
+}
 
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
             provider: "deepseek".into(),
-            base_url: "https://api.deepseek.com/v1".into(),
-            model: "deepseek-chat".into(),
+            base_url: "https://api.deepseek.com".into(),
+            model: "deepseek-flash".into(),
             api_key: String::new(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
+            extra_body: default_extra_body(),
+            skip_temperature: false,
         }
     }
 }
@@ -64,7 +75,49 @@ fn load_config(app: &tauri::AppHandle) -> Result<AiConfig, String> {
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 AI 配置失败：{}", e))?;
     // 配置损坏时不要炸掉整个功能，回落到默认值让用户重填
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    let mut cfg: AiConfig = serde_json::from_str(&raw).unwrap_or_default();
+    if migrate_legacy(&mut cfg) {
+        let _ = save_config(app, &cfg);
+    }
+    Ok(cfg)
+}
+
+/// 把旧预设里的模型名迁移到官方文档当前推荐的「快 + 省 token」型号。
+/// 只匹配明确的旧名，不动用户手填的自定义模型。
+fn migrate_legacy(cfg: &mut AiConfig) -> bool {
+    let (base, model, extra, skip) = match (cfg.provider.as_str(), cfg.model.as_str()) {
+        ("deepseek", "deepseek-chat" | "deepseek-reasoner" | "deepseek-v4-flash") => (
+            "https://api.deepseek.com",
+            "deepseek-flash",
+            "{}",
+            false,
+        ),
+        ("openai", "gpt-4o-mini" | "gpt-5-mini" | "gpt-5.4-mini" | "gpt-5.6-terra") => (
+            "https://api.openai.com/v1",
+            "gpt-5.6-luna",
+            "{\"reasoning_effort\":\"none\"}",
+            true,
+        ),
+        ("moonshot", "moonshot-v1-8k" | "kimi-k3" | "kimi-k3.1-pro") => (
+            "https://api.moonshot.cn/v1",
+            "kimi-k2.6",
+            "{\"thinking\":{\"type\":\"disabled\"}}",
+            true,
+        ),
+        ("zhipu", "glm-4-flash" | "glm-5.2" | "glm-5.3") => (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "glm-5.3-flash",
+            "{\"thinking\":{\"type\":\"enabled\",\"clear_thinking\":false},\"reasoning_effort\":\"low\",\"temperature\":1}",
+            true,
+        ),
+        ("ollama", "qwen2.5:7b") => ("http://localhost:11434/v1", "qwen3:8b", "{}", false),
+        _ => return false,
+    };
+    cfg.base_url = base.to_string();
+    cfg.model = model.to_string();
+    cfg.extra_body = extra.to_string();
+    cfg.skip_temperature = skip;
+    true
 }
 
 fn save_config(app: &tauri::AppHandle, cfg: &AiConfig) -> Result<(), String> {
@@ -97,6 +150,8 @@ pub fn ai_config_get(app: tauri::AppHandle) -> Result<serde_json::Value, String>
         "model": cfg.model,
         "temperature": cfg.temperature,
         "max_tokens": cfg.max_tokens,
+        "extra_body": cfg.extra_body,
+        "skip_temperature": cfg.skip_temperature,
         "has_key": !cfg.api_key.is_empty(),
         "key_hint": hint,
         "config_dir": config_path(&app)?.to_string_lossy().to_string(),
@@ -113,6 +168,8 @@ pub fn ai_config_set(
     api_key: Option<String>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
+    extra_body: Option<String>,
+    skip_temperature: Option<bool>,
 ) -> Result<(), String> {
     let mut cfg = load_config(&app)?;
     cfg.provider = provider;
@@ -129,6 +186,21 @@ pub fn ai_config_set(
     }
     if let Some(m) = max_tokens {
         cfg.max_tokens = m.clamp(256, 32000);
+    }
+    if let Some(extra) = extra_body {
+        let extra = extra.trim();
+        if !extra.is_empty() {
+            // 提前拦掉非法 JSON，避免到了请求时才失败
+            let v: serde_json::Value =
+                serde_json::from_str(extra).map_err(|e| format!("额外参数不是合法 JSON：{}", e))?;
+            if !v.is_object() {
+                return Err("额外参数必须是一个 JSON 对象，例如 {\"reasoning_effort\":\"none\"}".to_string());
+            }
+            cfg.extra_body = extra.to_string();
+        }
+    }
+    if let Some(skip) = skip_temperature {
+        cfg.skip_temperature = skip;
     }
     save_config(&app, &cfg)
 }
@@ -179,7 +251,44 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("初始化 HTTP 客户端失败：{}", e))
 }
 
+/// 组装请求体：基础字段 + 服务商特有参数。
+/// extra_body 里的键不能覆盖核心字段，避免用户误配后把 messages 冲掉。
+fn build_body(
+    cfg: &AiConfig,
+    messages: Vec<ChatMessage>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::json!({
+        "model": cfg.model,
+        "messages": messages,
+        "max_tokens": max_tokens.unwrap_or(cfg.max_tokens),
+        "stream": false,
+    });
+    if !cfg.skip_temperature {
+        body["temperature"] = serde_json::json!(temperature.unwrap_or(cfg.temperature));
+    }
+
+    if !cfg.extra_body.trim().is_empty() {
+        let extra: serde_json::Value = serde_json::from_str(cfg.extra_body.trim())
+            .map_err(|e| format!("AI 额外参数不是合法 JSON：{}", e))?;
+        if let Some(obj) = extra.as_object() {
+            const RESERVED: &[&str] = &["model", "messages", "max_tokens", "stream"];
+            for (k, v) in obj {
+                if RESERVED.contains(&k.as_str()) {
+                    continue;
+                }
+                // skip_temperature 时允许 extra_body 显式指定 temperature（如 GLM 要求 1）
+                body[k.as_str()] = v.clone();
+            }
+        }
+    }
+    Ok(body)
+}
+
 /// 主调用：把 messages 发给模型，返回正文 + 用量 + 耗时。
+/// 组装请求体：基础字段 + 服务商特有参数。
+
 /// 主调用：把 messages 发给模型，返回正文 + 用量 + 耗时。
 /// max_tokens / temperature 可按次覆盖：补丁式编辑只需要很短的输出，把上限压小既省钱也更快，
 /// 而整篇改写（回退路径）需要更大的空间。
@@ -198,13 +307,7 @@ pub async fn ai_chat(
         return Err("还没有填 API Key：请到 设置 → AI 配置".to_string());
     }
 
-    let body = serde_json::json!({
-        "model": cfg.model,
-        "messages": messages,
-        "temperature": temperature.unwrap_or(cfg.temperature),
-        "max_tokens": max_tokens.unwrap_or(cfg.max_tokens),
-        "stream": false,
-    });
+    let body = build_body(&cfg, messages, max_tokens, temperature)?;
 
     let mut req = client()?.post(endpoint(&cfg, "chat/completions")).json(&body);
     if !cfg.api_key.is_empty() {
@@ -305,4 +408,80 @@ pub async fn ai_models(app: tauri::AppHandle) -> Result<Vec<String>, String> {
         return Err("接口没有返回模型列表（可以手动填模型名）".to_string());
     }
     Ok(list)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg() -> Vec<ChatMessage> {
+        vec![ChatMessage {
+            role: "user".into(),
+            content: "hi".into(),
+        }]
+    }
+
+    #[test]
+    fn body_includes_temperature_by_default() {
+        let cfg = AiConfig::default();
+        let body = build_body(&cfg, msg(), Some(1200), Some(0.15)).unwrap();
+        let t = body["temperature"].as_f64().unwrap();
+        assert!((t - 0.15).abs() < 1e-6, "temperature={}", t);
+        assert_eq!(body["max_tokens"], 1200);
+        assert_eq!(body["stream"], false);
+    }
+
+    #[test]
+    fn skip_temperature_drops_field_but_extra_can_restore_it() {
+        let mut cfg = AiConfig::default();
+        cfg.skip_temperature = true;
+        let body = build_body(&cfg, msg(), None, Some(0.15)).unwrap();
+        assert!(body.get("temperature").is_none());
+
+        cfg.extra_body = r#"{"temperature":1,"thinking":{"type":"enabled"},"reasoning_effort":"low"}"#.into();
+        let body = build_body(&cfg, msg(), None, Some(0.15)).unwrap();
+        assert_eq!(body["temperature"], 1);
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["reasoning_effort"], "low");
+    }
+
+    #[test]
+    fn extra_body_cannot_override_core_fields() {
+        let mut cfg = AiConfig::default();
+        cfg.extra_body = r#"{"model":"evil","messages":[],"reasoning_effort":"none"}"#.into();
+        let body = build_body(&cfg, msg(), None, None).unwrap();
+        assert_eq!(body["model"], cfg.model);
+        assert_eq!(body["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(body["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn legacy_configs_migrate_to_current_lightweight_models() {
+        let cases = [
+            (("deepseek", "deepseek-chat"), "deepseek-flash"),
+            (("openai", "gpt-4o-mini"), "gpt-5.6-luna"),
+            (("moonshot", "moonshot-v1-8k"), "kimi-k2.6"),
+            (("zhipu", "glm-4-flash"), "glm-5.3-flash"),
+            (("ollama", "qwen2.5:7b"), "qwen3:8b"),
+        ];
+        for ((provider, model), expected) in cases {
+            let mut cfg = AiConfig {
+                provider: provider.into(),
+                model: model.into(),
+                ..AiConfig::default()
+            };
+            assert!(migrate_legacy(&mut cfg));
+            assert_eq!(cfg.model, expected);
+            assert!(build_body(&cfg, msg(), None, None).is_ok());
+        }
+
+        let mut custom = AiConfig {
+            provider: "custom".into(),
+            model: "my-local-model".into(),
+            ..AiConfig::default()
+        };
+        assert!(!migrate_legacy(&mut custom));
+        assert_eq!(custom.model, "my-local-model");
+    }
 }

@@ -44,8 +44,31 @@
 - 「排版整理」只动 Markdown 结构，不改一个字；「润色/精简/扩写」只改文字，不动结构
 - 「翻译」默认中英互译：中文原文译成英文、英文原文译成中文，由模型自己判断方向
 - 结果按「改动块」呈现，每块可单独勾选，也可以一键全部替换；替换走编辑器操作，⌘Z 可撤销
-- 支持任意 OpenAI 兼容接口：DeepSeek / OpenAI / Moonshot / 智谱 / 本地 Ollama / 自建 vLLM
+- 设置 → AI 里预填了 9 家服务商的**官方地址 + 当前轻量型号**，一键切换；也支持任意 OpenAI 兼容接口
+- 预设会按各家规则自动附带必需参数（如 GLM 必须开思考、Kimi 要关思考、推理模型要去掉 temperature）
 - API Key 只存在本机配置文件（权限 600），不写浏览器存储、不经过任何第三方中转
+
+
+### 预填的服务商（按官方文档核对，2026-11）
+
+| 服务商 | Base URL | 预填的轻量模型 | 官方出处 | 特殊处理 |
+| --- | --- | --- | --- | --- |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-flash` | [API Docs](https://api-docs.deepseek.com) | 官方当前快速型号（V4.1 Flash）；`/v1` 前缀也兼容 |
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.6-luna` | [Models](https://platform.openai.com/docs/models) | 成本敏感档；`reasoning_effort=none`，不传 `temperature` |
+| Kimi / Moonshot | `https://api.moonshot.cn/v1` | `kimi-k2.6` | [模型参数参考](https://platform.kimi.com/docs/api/models-overview) | 关闭思考（`thinking.type=disabled`）；温度固定，不传 `temperature` |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | `glm-5.3-flash` | [GLM-5.3-Flash 文档](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash.md) | 思考不可关，必须 `thinking.type=enabled`；`reasoning_effort=low`、`temperature=1` |
+| 阿里百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen3.8-flash` | [模型列表](https://help.aliyun.com/zh/model-studio/getting-started/models) | 官方「快速且低成本」型号；北京地域端点 |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-3.5-flash-lite` | [OpenAI 兼容文档](https://ai.google.dev/gemini-api/docs/openai) | 最快/最低成本档，OpenAI 兼容层接受 `reasoning_effort=minimal` |
+| Groq | `https://api.groq.com/openai/v1` | `openai/gpt-oss-20b` | [Supported Models](https://console.groq.com/docs/models) | 约 1000 token/s，价格低于 120B |
+| 硅基流动 | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V4-Flash` | [Chat Completions](https://docs.siliconflow.cn/docs/api/chat-completions-post) | 模型 ID 带厂商前缀；完整列表看模型广场 |
+| Ollama（本地） | `http://localhost:11434/v1` | `qwen3:8b` | [OpenAI 兼容文档](https://docs.ollama.com/api/openai) | 无需 API Key；先 `ollama pull qwen3:8b` |
+
+这些预设不是拍脑袋写的：模型会随着供应商迭代而更新，设置面板里每条预设都带一条「官方文档」链接，
+可以直接点开核对。旧配置里常见的历史模型名（`deepseek-chat`、`gpt-4o-mini`、`moonshot-v1-8k`、
+`glm-4-flash`、`qwen2.5:7b`）会在启动时**自动迁移**到上表的型号，API Key 保持不变。
+
+如果你用的模型不在列表里，选「自定义」即可；需要特殊参数时，在「额外请求参数」里填 JSON 对象
+（会合并到请求体，但不允许覆盖 `model` / `messages` / `max_tokens` / `stream`）。
 
 **它是个补丁式编辑 agent，不是「让模型重写一遍」**
 模型只回编辑指令（`REPLACE 12-14` / `DELETE 20-22` / `INSERT 30`），本地按行号打补丁：

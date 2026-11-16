@@ -13,14 +13,110 @@ export function createSettings({ body, onApply }) {
   let fonts = null; // 系统字体列表，首次打开时才枚举（要解析上百个字体文件头）
   let aiCfg = null;
 
-  // 常见的 OpenAI 兼容服务：选预设只填「地址 + 常用模型」，密钥仍需自己粘贴
+  // 地址、模型名与特殊参数均按各家官方文档核对（2026-11）。
+  // extra = 必须随请求一起发的参数；skipTemperature = 不发送 temperature（有些模型会直接报错）。
+  // 文档链接也放进预设，设置面板里可直接打开核对。
   const AI_PRESETS = [
-    { id: 'deepseek', name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
-    { id: 'openai', name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-    { id: 'moonshot', name: 'Moonshot', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-    { id: 'zhipu', name: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-    { id: 'ollama', name: 'Ollama（本地）', base: 'http://localhost:11434/v1', model: 'qwen2.5:7b' },
-    { id: 'custom', name: '自定义（OpenAI 兼容）', base: '', model: '' },
+    {
+      id: 'deepseek',
+      name: 'DeepSeek',
+      base: 'https://api.deepseek.com',
+      model: 'deepseek-flash',
+      extra: '{}',
+      skipTemperature: false,
+      doc: 'https://api-docs.deepseek.com',
+      note: 'deepseek-flash 是官方当前的快速型号（V4.1 Flash）；/v1 前缀也兼容。',
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      base: 'https://api.openai.com/v1',
+      model: 'gpt-5.6-luna',
+      extra: '{"reasoning_effort":"none"}',
+      skipTemperature: true,
+      doc: 'https://platform.openai.com/docs/models',
+      note: 'gpt-5.6-luna 是成本敏感型；推理模型不接受 temperature，已自动去掉并设 reasoning_effort=none。',
+    },
+    {
+      id: 'moonshot',
+      name: 'Kimi / Moonshot',
+      base: 'https://api.moonshot.cn/v1',
+      model: 'kimi-k2.6',
+      extra: '{"thinking":{"type":"disabled"}}',
+      skipTemperature: true,
+      doc: 'https://platform.kimi.com/docs/api/models-overview',
+      note: 'kimi-k2.6 性价比高；K3 系列强制思考且温度固定 1.0，这里关闭思考并去掉 temperature。',
+    },
+    {
+      id: 'zhipu',
+      name: '智谱 GLM',
+      base: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-5.3-flash',
+      extra: '{"thinking":{"type":"enabled","clear_thinking":false},"reasoning_effort":"low","temperature":1}',
+      skipTemperature: true,
+      doc: 'https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash.md',
+      note: 'GLM-5.3 系列不支持关闭思考；官方要求 thinking.type=enabled，建议 temperature=1、低推理强度。',
+    },
+    {
+      id: 'bailian',
+      name: '阿里百炼（通义千问）',
+      base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen3.8-flash',
+      extra: '{}',
+      skipTemperature: false,
+      doc: 'https://help.aliyun.com/zh/model-studio/getting-started/models',
+      note: 'qwen3.8-flash 是官方文档标注的「快速且低成本」型号；北京地域端点。',
+    },
+    {
+      id: 'gemini',
+      name: 'Google Gemini',
+      base: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: 'gemini-3.5-flash-lite',
+      extra: '{"reasoning_effort":"minimal"}',
+      skipTemperature: false,
+      doc: 'https://ai.google.dev/gemini-api/docs/openai',
+      note: 'Flash-Lite 是官方文档的最快/最低成本档；OpenAI 兼容层接受 reasoning_effort=minimal。',
+    },
+    {
+      id: 'groq',
+      name: 'Groq',
+      base: 'https://api.groq.com/openai/v1',
+      model: 'openai/gpt-oss-20b',
+      extra: '{}',
+      skipTemperature: false,
+      doc: 'https://console.groq.com/docs/models',
+      note: 'gpt-oss-20b 官方标称约 1000 token/s、价格低于 120B；适合短补丁快速生成。',
+    },
+    {
+      id: 'siliconflow',
+      name: '硅基流动',
+      base: 'https://api.siliconflow.cn/v1',
+      model: 'deepseek-ai/DeepSeek-V4-Flash',
+      extra: '{}',
+      skipTemperature: false,
+      doc: 'https://docs.siliconflow.cn/docs/api/chat-completions-post',
+      note: '模型名要带厂商前缀；这个 Flash 型号来自官方 API 示例，完整列表见模型广场。',
+    },
+    {
+      id: 'ollama',
+      name: 'Ollama（本地）',
+      base: 'http://localhost:11434/v1',
+      model: 'qwen3:8b',
+      extra: '{}',
+      skipTemperature: false,
+      doc: 'https://docs.ollama.com/api/openai',
+      note: '本地模型无需 API Key；先执行 ollama pull qwen3:8b。模型名随你本地已有的改。',
+    },
+    {
+      id: 'custom',
+      name: '自定义（OpenAI 兼容）',
+      base: '',
+      model: '',
+      extra: '{}',
+      skipTemperature: false,
+      doc: '',
+      note: '任何兼容 /chat/completions 的服务都可以，地址和模型名自己填。',
+    },
   ];
 
   const apply = (key, value, immediate = true) => {
@@ -153,6 +249,18 @@ export function createSettings({ body, onApply }) {
     fetchBtn.textContent = '拉取列表';
     fetchBtn.title = '从接口的 /models 拉取可用模型';
 
+    const extraInput = document.createElement('input');
+    extraInput.type = 'text';
+    extraInput.placeholder = '{}';
+    extraInput.spellcheck = false;
+    extraInput.title = 'JSON 对象，合并进请求体，例如 {"reasoning_effort":"none"}';
+
+    const skipCheck = document.createElement('input');
+    skipCheck.type = 'checkbox';
+    skipCheck.style.width = '14px';
+    skipCheck.style.height = '14px';
+    skipCheck.style.accentColor = 'var(--accent)';
+
     const keyInput = document.createElement('input');
     keyInput.type = 'password';
     keyInput.placeholder = '粘贴 API Key';
@@ -181,8 +289,10 @@ export function createSettings({ body, onApply }) {
     wrap.appendChild(wideRow('模型', '可手填，也可点「拉取列表」从接口取', modelInput, fetchBtn, modelList));
     wrap.appendChild(wideRow('API Key', '只存在本机配置文件里，不写入浏览器存储', keyInput));
     wrap.appendChild(
-      result
+      wideRow('额外请求参数', 'JSON 对象；选预设会自动填好，一般不用改', extraInput)
     );
+    wrap.appendChild(wideRow('不发送 temperature', '部分推理模型会拒绝这个字段', skipCheck));
+    wrap.appendChild(result);
     wrap.appendChild(status);
 
     const actions = document.createElement('div');
@@ -205,19 +315,37 @@ export function createSettings({ body, onApply }) {
         modelInput.value = aiCfg.model || '';
         keyInput.value = '';
         keyInput.placeholder = aiCfg.has_key ? `已保存 ${aiCfg.key_hint}（留空不修改）` : '粘贴 API Key（本地模型可留空）';
+        extraInput.value = aiCfg.extra_body || '{}';
+        skipCheck.checked = !!aiCfg.skip_temperature;
+        const p = AI_PRESETS.find((x) => x.id === presetSel.value);
         status.innerHTML =
           `密钥存在本机：<code>${aiCfg.config_dir || ''}</code>，文件权限 600，仅当前用户可读。` +
+          `<br>${p && p.note ? p.note : ''}` +
+          (p && p.doc ? ` <a href="${p.doc}" data-doc-url="${p.doc}">官方文档 ↗</a>` : '') +
           `<br>快捷键 <code>⌘J</code> 打开 AI 编辑；生成后先看差异，点「应用替换」才写入文档。`;
       } catch (e) {
         status.textContent = '读取 AI 配置失败：' + ipc.describeError(e);
       }
     }
 
+    // WebView 里 <a target="_blank"> 不一定能开外链，交给系统默认浏览器
+    status.addEventListener('click', (e) => {
+      const a = e.target.closest('a[data-doc-url]');
+      if (!a) return;
+      e.preventDefault();
+      ipc.openPath(a.dataset.docUrl).catch(() => {});
+    });
+
     presetSel.addEventListener('change', () => {
       const p = AI_PRESETS.find((x) => x.id === presetSel.value);
-      if (p && p.id !== 'custom') {
-        baseInput.value = p.base;
-        modelInput.value = p.model;
+      if (p) {
+        if (p.id !== 'custom') {
+          baseInput.value = p.base;
+          modelInput.value = p.model;
+        }
+        extraInput.value = p.extra || '{}';
+        skipCheck.checked = !!p.skipTemperature;
+        result.textContent = p.note || '';
       }
       baseInput.focus();
     });
@@ -235,6 +363,8 @@ export function createSettings({ body, onApply }) {
           apiKey: keyInput.value || null,
           temperature: 0.3,
           maxTokens: 4096,
+          extraBody: extraInput.value || '{}',
+          skipTemperature: skipCheck.checked,
         });
         const list = await ipc.aiModels();
         modelList.innerHTML = '';
@@ -266,6 +396,8 @@ export function createSettings({ body, onApply }) {
           apiKey: keyInput.value || null,
           temperature: 0.3,
           maxTokens: 4096,
+          extraBody: extraInput.value || '{}',
+          skipTemperature: skipCheck.checked,
         });
         const r = await ipc.aiTest();
         result.style.color = 'var(--accent)';
