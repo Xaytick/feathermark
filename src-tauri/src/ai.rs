@@ -47,9 +47,9 @@ fn default_extra_body() -> String {
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
-            provider: "deepseek".into(),
-            base_url: "https://api.deepseek.com".into(),
-            model: "deepseek-flash".into(),
+            provider: "custom".into(),
+            base_url: String::new(),
+            model: String::new(),
             api_key: String::new(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
@@ -74,50 +74,9 @@ fn load_config(app: &tauri::AppHandle) -> Result<AiConfig, String> {
         return Ok(AiConfig::default());
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 AI 配置失败：{}", e))?;
-    // 配置损坏时不要炸掉整个功能，回落到默认值让用户重填
-    let mut cfg: AiConfig = serde_json::from_str(&raw).unwrap_or_default();
-    if migrate_legacy(&mut cfg) {
-        let _ = save_config(app, &cfg);
-    }
-    Ok(cfg)
-}
-
-/// 把旧预设里的模型名迁移到官方文档当前推荐的「快 + 省 token」型号。
-/// 只匹配明确的旧名，不动用户手填的自定义模型。
-fn migrate_legacy(cfg: &mut AiConfig) -> bool {
-    let (base, model, extra, skip) = match (cfg.provider.as_str(), cfg.model.as_str()) {
-        ("deepseek", "deepseek-chat" | "deepseek-reasoner" | "deepseek-v4-flash") => (
-            "https://api.deepseek.com",
-            "deepseek-flash",
-            "{}",
-            false,
-        ),
-        ("openai", "gpt-4o-mini" | "gpt-5-mini" | "gpt-5.4-mini" | "gpt-5.6-terra") => (
-            "https://api.openai.com/v1",
-            "gpt-5.6-luna",
-            "{\"reasoning_effort\":\"none\"}",
-            true,
-        ),
-        ("moonshot", "moonshot-v1-8k" | "kimi-k3" | "kimi-k3.1-pro") => (
-            "https://api.moonshot.cn/v1",
-            "kimi-k2.6",
-            "{\"thinking\":{\"type\":\"disabled\"}}",
-            true,
-        ),
-        ("zhipu", "glm-4-flash" | "glm-5.2" | "glm-5.3") => (
-            "https://open.bigmodel.cn/api/paas/v4",
-            "glm-5.3-flash",
-            "{\"thinking\":{\"type\":\"enabled\",\"clear_thinking\":false},\"reasoning_effort\":\"low\",\"temperature\":1}",
-            true,
-        ),
-        ("ollama", "qwen2.5:7b") => ("http://localhost:11434/v1", "qwen3:8b", "{}", false),
-        _ => return false,
-    };
-    cfg.base_url = base.to_string();
-    cfg.model = model.to_string();
-    cfg.extra_body = extra.to_string();
-    cfg.skip_temperature = skip;
-    true
+    // 配置损坏时不要炸掉整个功能，回落到默认值让用户重填。
+    // 不做模型名自动迁移：用户自己填什么就用什么，避免绕过他们的选择。
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
 }
 
 fn save_config(app: &tauri::AppHandle, cfg: &AiConfig) -> Result<(), String> {
@@ -456,32 +415,4 @@ mod tests {
         assert_eq!(body["reasoning_effort"], "none");
     }
 
-    #[test]
-    fn legacy_configs_migrate_to_current_lightweight_models() {
-        let cases = [
-            (("deepseek", "deepseek-chat"), "deepseek-flash"),
-            (("openai", "gpt-4o-mini"), "gpt-5.6-luna"),
-            (("moonshot", "moonshot-v1-8k"), "kimi-k2.6"),
-            (("zhipu", "glm-4-flash"), "glm-5.3-flash"),
-            (("ollama", "qwen2.5:7b"), "qwen3:8b"),
-        ];
-        for ((provider, model), expected) in cases {
-            let mut cfg = AiConfig {
-                provider: provider.into(),
-                model: model.into(),
-                ..AiConfig::default()
-            };
-            assert!(migrate_legacy(&mut cfg));
-            assert_eq!(cfg.model, expected);
-            assert!(build_body(&cfg, msg(), None, None).is_ok());
-        }
-
-        let mut custom = AiConfig {
-            provider: "custom".into(),
-            model: "my-local-model".into(),
-            ..AiConfig::default()
-        };
-        assert!(!migrate_legacy(&mut custom));
-        assert_eq!(custom.model, "my-local-model");
-    }
 }

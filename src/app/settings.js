@@ -13,100 +13,9 @@ export function createSettings({ body, onApply }) {
   let fonts = null; // 系统字体列表，首次打开时才枚举（要解析上百个字体文件头）
   let aiCfg = null;
 
-  // 地址、模型名与特殊参数均按各家官方文档核对（2026-11）。
-  // extra = 必须随请求一起发的参数；skipTemperature = 不发送 temperature（有些模型会直接报错）。
-  // 文档链接也放进预设，设置面板里可直接打开核对。
+  // 不预填服务商预设：模型与端点迭代太快，硬编码的表格只会过时。
+  // 地址和模型留空，由用户按所用服务的官方文档自己填；下面两项是通用能力，保留。
   const AI_PRESETS = [
-    {
-      id: 'deepseek',
-      name: 'DeepSeek',
-      base: 'https://api.deepseek.com',
-      model: 'deepseek-flash',
-      extra: '{}',
-      skipTemperature: false,
-      doc: 'https://api-docs.deepseek.com',
-      note: 'deepseek-flash 是官方当前的快速型号（V4.1 Flash）；/v1 前缀也兼容。',
-    },
-    {
-      id: 'openai',
-      name: 'OpenAI',
-      base: 'https://api.openai.com/v1',
-      model: 'gpt-5.6-luna',
-      extra: '{"reasoning_effort":"none"}',
-      skipTemperature: true,
-      doc: 'https://platform.openai.com/docs/models',
-      note: 'gpt-5.6-luna 是成本敏感型；推理模型不接受 temperature，已自动去掉并设 reasoning_effort=none。',
-    },
-    {
-      id: 'moonshot',
-      name: 'Kimi / Moonshot',
-      base: 'https://api.moonshot.cn/v1',
-      model: 'kimi-k2.6',
-      extra: '{"thinking":{"type":"disabled"}}',
-      skipTemperature: true,
-      doc: 'https://platform.kimi.com/docs/api/models-overview',
-      note: 'kimi-k2.6 性价比高；K3 系列强制思考且温度固定 1.0，这里关闭思考并去掉 temperature。',
-    },
-    {
-      id: 'zhipu',
-      name: '智谱 GLM',
-      base: 'https://open.bigmodel.cn/api/paas/v4',
-      model: 'glm-5.3-flash',
-      extra: '{"thinking":{"type":"enabled","clear_thinking":false},"reasoning_effort":"low","temperature":1}',
-      skipTemperature: true,
-      doc: 'https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash.md',
-      note: 'GLM-5.3 系列不支持关闭思考；官方要求 thinking.type=enabled，建议 temperature=1、低推理强度。',
-    },
-    {
-      id: 'bailian',
-      name: '阿里百炼（通义千问）',
-      base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      model: 'qwen3.8-flash',
-      extra: '{}',
-      skipTemperature: false,
-      doc: 'https://help.aliyun.com/zh/model-studio/getting-started/models',
-      note: 'qwen3.8-flash 是官方文档标注的「快速且低成本」型号；北京地域端点。',
-    },
-    {
-      id: 'gemini',
-      name: 'Google Gemini',
-      base: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      model: 'gemini-3.5-flash-lite',
-      extra: '{"reasoning_effort":"minimal"}',
-      skipTemperature: false,
-      doc: 'https://ai.google.dev/gemini-api/docs/openai',
-      note: 'Flash-Lite 是官方文档的最快/最低成本档；OpenAI 兼容层接受 reasoning_effort=minimal。',
-    },
-    {
-      id: 'groq',
-      name: 'Groq',
-      base: 'https://api.groq.com/openai/v1',
-      model: 'openai/gpt-oss-20b',
-      extra: '{}',
-      skipTemperature: false,
-      doc: 'https://console.groq.com/docs/models',
-      note: 'gpt-oss-20b 官方标称约 1000 token/s、价格低于 120B；适合短补丁快速生成。',
-    },
-    {
-      id: 'siliconflow',
-      name: '硅基流动',
-      base: 'https://api.siliconflow.cn/v1',
-      model: 'deepseek-ai/DeepSeek-V4-Flash',
-      extra: '{}',
-      skipTemperature: false,
-      doc: 'https://docs.siliconflow.cn/docs/api/chat-completions-post',
-      note: '模型名要带厂商前缀；这个 Flash 型号来自官方 API 示例，完整列表见模型广场。',
-    },
-    {
-      id: 'ollama',
-      name: 'Ollama（本地）',
-      base: 'http://localhost:11434/v1',
-      model: 'qwen3:8b',
-      extra: '{}',
-      skipTemperature: false,
-      doc: 'https://docs.ollama.com/api/openai',
-      note: '本地模型无需 API Key；先执行 ollama pull qwen3:8b。模型名随你本地已有的改。',
-    },
     {
       id: 'custom',
       name: '自定义（OpenAI 兼容）',
@@ -233,12 +142,12 @@ export function createSettings({ body, onApply }) {
 
     const baseInput = document.createElement('input');
     baseInput.type = 'text';
-    baseInput.placeholder = 'https://api.deepseek.com/v1';
+    baseInput.placeholder = 'https://你的服务商/v1';
     baseInput.spellcheck = false;
 
     const modelInput = document.createElement('input');
     modelInput.type = 'text';
-    modelInput.placeholder = 'deepseek-chat';
+    modelInput.placeholder = '模型 ID';
     modelInput.spellcheck = false;
     modelInput.setAttribute('list', 'ai-model-list');
     const modelList = document.createElement('datalist');
