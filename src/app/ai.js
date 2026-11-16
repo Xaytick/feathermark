@@ -1,8 +1,9 @@
 // AI 编辑：把「选中内容 / 整篇」交给模型做轻量改写，先看差异再决定是否替换。
 //
 // 设计原则：
-// - 永不自动改写：必须先点「生成」，再点「应用」；应用走 CodeMirror 的替换操作，⌘Z 可撤销。
-// - 先看再改：结果以行级 diff 呈现（改动行内还会标出字符级差异），避免「黑箱替换」。
+// - 永不自动改写：必须先点「生成」，再逐块或整篇应用；应用走 CodeMirror 的替换操作，⌘Z 可撤销。
+// - 先看再改：结果按「改动块（hunk）」呈现，每块可单独勾选，能只接受其中几处；
+//   改动行内还会标出字符级差异，避免「黑箱替换」。
 // - 只发必要内容：选中就只发选中部分；整篇会提示字数，避免误发整篇长文。
 // - 密钥不出现在这里：所有请求都经 Rust 侧转发，前端拿不到 API Key。
 import * as ipc from './ipc.js';
@@ -46,10 +47,10 @@ const ACTIONS = [
   },
   {
     id: 'translate',
-    label: '译成英文',
-    hint: '保留 Markdown 结构',
+    label: '翻译',
+    hint: '中英互译，保留结构',
     prompt:
-      '翻译成地道、简洁的英文技术写作风格。保留全部 Markdown 结构、链接、代码、术语与专有名词原样不变。',
+      '自动判断翻译方向：原文以中文为主就译成英文，原文以英文为主就译成中文；中英混排时以正文主要语言为准，界面里出现的专有名词保留原文。译文要自然、符合技术写作习惯。保留全部 Markdown 结构、链接、图片、代码块、行内代码、术语与专有名词原样不变，不要翻译代码和 URL。',
   },
   { id: 'custom', label: '自定义', hint: '只用下面那句要求', prompt: '' },
 ];
@@ -115,6 +116,25 @@ function diffLines(a, b) {
   return rows;
 }
 
+/** 把连续的增删行聚成一个「改动块」——块是逐块接受的最小单位。 */
+function buildHunks(rows) {
+  const hunks = [];
+  let cur = null;
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].type === 'same') {
+      cur = null;
+      continue;
+    }
+    if (!cur) {
+      cur = { start: i, end: i, accepted: true };
+      hunks.push(cur);
+    } else {
+      cur.end = i;
+    }
+  }
+  return hunks;
+}
+
 /** 成对改写的行：截掉公共前后缀，只高亮真正变化的中段。 */
 function splitCommon(oldText, newText) {
   const a = Array.from(oldText);
@@ -133,19 +153,19 @@ function splitCommon(oldText, newText) {
   };
 }
 
-function lineNode(text, markClass, segments) {
+function lineNode(text, kind, segments) {
   const row = document.createElement('div');
-  row.className = 'dl ' + (markClass === 'del-hl' ? 'del' : markClass === 'add-hl' ? 'add' : '');
+  row.className = 'dl ' + (kind === 'del' ? 'del' : kind === 'add' ? 'add' : '');
   const sign = document.createElement('span');
   sign.className = 'dl-sign';
-  sign.textContent = markClass === 'del-hl' ? '−' : markClass === 'add-hl' ? '+' : ' ';
+  sign.textContent = kind === 'del' ? '−' : kind === 'add' ? '+' : ' ';
   const body = document.createElement('span');
   body.className = 'dl-text';
   if (segments) {
     body.appendChild(document.createTextNode(segments.pre));
     if (segments.mid) {
       const mark = document.createElement('mark');
-      mark.className = markClass;
+      mark.className = kind === 'del' ? 'del-hl' : 'add-hl';
       mark.textContent = segments.mid;
       body.appendChild(mark);
     }
@@ -158,39 +178,82 @@ function lineNode(text, markClass, segments) {
   return row;
 }
 
-/** 把 diff 行渲染成 DOM：未改动的大段折叠，成对改动做字符级高亮。 */
-export function renderDiff(oldText, newText) {
-  const frag = document.createDocumentFragment();
-  const a = oldText.split('\n');
-  const b = newText.split('\n');
+/**
+ * 构建可交互的差异视图。
+ * compose() 按「各块是否勾选」重组最终文本：接受某块就取新增行、丢弃删除行；
+ * 跳过某块则保留原行——所以「只应用其中几处」在文本层面是逐块拼接出来的。
+ */
+export function buildDiffView(oldText, newText) {
+  const a = String(oldText).split('\n');
+  const b = String(newText).split('\n');
   const rows = diffLines(a, b);
 
-  if (!rows) {
+  const plainFallback = (message, text) => {
+    const node = document.createElement('div');
+    if (message) {
+      const bar = document.createElement('div');
+      bar.className = 'ai-diff-bar';
+      bar.textContent = message;
+      node.appendChild(bar);
+    }
     const plain = document.createElement('div');
     plain.className = 'ai-plain';
-    plain.textContent = newText;
-    frag.appendChild(plain);
-    return frag;
+    plain.textContent = text;
+    node.appendChild(plain);
+    return {
+      node,
+      changeCount: 0,
+      acceptedCount: () => 0,
+      allAccepted: () => true,
+      setAll: () => {},
+      compose: () => text,
+    };
+  };
+
+  // 改动规模过大（O(n·m) 表会太占内存）时退化为纯文本对照
+  if (!rows) return plainFallback('改动太多，已切换为纯文本对照（无法逐块选择）', newText);
+
+  const hunks = buildHunks(rows);
+  if (!hunks.length) return plainFallback(null, '模型认为不需要修改。');
+
+  const hunkAt = new Map(hunks.map((h, i) => [h.start, { hunk: h, index: i }]));
+  const node = document.createElement('div');
+
+  const bar = document.createElement('div');
+  bar.className = 'ai-diff-bar';
+  const barText = document.createElement('span');
+  barText.className = 'ai-diff-count';
+  const barBtn = document.createElement('button');
+  barBtn.className = 'mini-btn';
+  bar.appendChild(barText);
+  bar.appendChild(barBtn);
+  node.appendChild(bar);
+
+  const itemNodes = []; // [{ hunk, head, check, rowNodes }]
+
+  function paint() {
+    const accepted = hunks.filter((h) => h.accepted).length;
+    barText.textContent = `${hunks.length} 处改动 · 已选 ${accepted} 处`;
+    barBtn.textContent = accepted === hunks.length ? '全部跳过' : '全部接受';
+    for (const item of itemNodes) {
+      item.check.checked = item.hunk.accepted;
+      item.head.classList.toggle('off', !item.hunk.accepted);
+      item.rowNodes.forEach((n) => n.classList.toggle('off', !item.hunk.accepted));
+    }
   }
 
-  // 标记需要显示的索引：改动行本身 + 上下各 2 行上下文
-  const keep = new Set();
-  rows.forEach((r, idx) => {
-    if (r.type !== 'same') {
-      for (let k = Math.max(0, idx - 2); k <= Math.min(rows.length - 1, idx + 2); k++) keep.add(k);
+  // 上下文：每块前后各留 2 行，其余折叠
+  const CONTEXT = 2;
+  const visible = new Set();
+  for (const h of hunks) {
+    for (let k = h.start - CONTEXT; k <= h.end + CONTEXT; k++) {
+      if (k >= 0 && k < rows.length) visible.add(k);
     }
-  });
-  if (!keep.size) {
-    const none = document.createElement('div');
-    none.className = 'ai-plain';
-    none.textContent = '模型认为不需要修改。';
-    frag.appendChild(none);
-    return frag;
   }
 
   let skipped = 0;
   for (let idx = 0; idx < rows.length; idx++) {
-    if (!keep.has(idx)) {
+    if (!visible.has(idx)) {
       skipped++;
       continue;
     }
@@ -198,43 +261,108 @@ export function renderDiff(oldText, newText) {
       const gap = document.createElement('div');
       gap.className = 'dl-head';
       gap.textContent = `… 跳过 ${skipped} 行未改动 …`;
-      frag.appendChild(gap);
+      node.appendChild(gap);
       skipped = 0;
     }
-    const row = rows[idx];
-    if (row.type === 'same') {
-      frag.appendChild(lineNode(row.text, '', null));
-      continue;
+
+    const at = hunkAt.get(idx);
+    let current = null;
+    if (at) {
+      const head = document.createElement('div');
+      head.className = 'dh';
+      const label = document.createElement('label');
+      label.className = 'dh-check';
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.checked = at.hunk.accepted;
+      check.addEventListener('change', () => {
+        at.hunk.accepted = check.checked;
+        paint();
+        if (typeof onChange === 'function') onChange();
+      });
+      label.appendChild(check);
+      label.appendChild(document.createTextNode('接受'));
+      const tag = document.createElement('span');
+      tag.className = 'dh-tag';
+      tag.textContent = `第 ${at.index + 1} 处`;
+      head.appendChild(label);
+      head.appendChild(tag);
+      node.appendChild(head);
+      current = { hunk: at.hunk, head, check, rowNodes: [] };
+      itemNodes.push(current);
     }
-    // 连续成对的 删除+新增 → 字符级高亮
-    if (row.type === 'del' && rows[idx + 1] && rows[idx + 1].type === 'add') {
+
+    const row = rows[idx];
+
+    // 同一块内相邻的 删除+新增 → 字符级高亮
+    if (row.type === 'del' && rows[idx + 1] && rows[idx + 1].type === 'add' && current && idx + 1 <= current.hunk.end) {
       const seg = splitCommon(row.text, rows[idx + 1].text);
-      frag.appendChild(
-        lineNode(row.text, 'del-hl', { pre: seg.oldPre, mid: seg.oldMid, post: seg.oldPost })
-      );
-      frag.appendChild(
-        lineNode(rows[idx + 1].text, 'add-hl', { pre: seg.newPre, mid: seg.newMid, post: seg.newPost })
-      );
+      const n1 = lineNode(row.text, 'del', { pre: seg.oldPre, mid: seg.oldMid, post: seg.oldPost });
+      const n2 = lineNode(rows[idx + 1].text, 'add', { pre: seg.newPre, mid: seg.newMid, post: seg.newPost });
+      node.appendChild(n1);
+      node.appendChild(n2);
+      current.rowNodes.push(n1, n2);
       idx++;
       continue;
     }
-    frag.appendChild(
-      lineNode(
-        row.text,
-        row.type === 'del' ? 'del-hl' : 'add-hl',
-        row.type === 'del'
-          ? { pre: '', mid: row.text, post: '' }
-          : { pre: '', mid: row.text, post: '' }
-      )
-    );
+
+    const kind = row.type === 'same' ? '' : row.type;
+    const n = lineNode(row.text, kind, kind ? { pre: '', mid: row.text, post: '' } : null);
+    node.appendChild(n);
+    if (current) current.rowNodes.push(n);
   }
+
   if (skipped) {
     const gap = document.createElement('div');
     gap.className = 'dl-head';
     gap.textContent = `… 跳过 ${skipped} 行未改动 …`;
-    frag.appendChild(gap);
+    node.appendChild(gap);
   }
-  return frag;
+
+  paint();
+
+  // 勾选状态变化时通知外部（用于同步底部按钮文案）
+  let onChange = null;
+  barBtn.addEventListener('click', () => {
+    const all = hunks.every((h) => h.accepted);
+    hunks.forEach((h) => (h.accepted = !all));
+    paint();
+    if (onChange) onChange();
+  });
+
+  return {
+    node,
+    changeCount: hunks.length,
+    acceptedCount: () => hunks.filter((h) => h.accepted).length,
+    allAccepted: () => hunks.every((h) => h.accepted),
+    setAll(accepted) {
+      hunks.forEach((h) => (h.accepted = accepted));
+      paint();
+      if (onChange) onChange();
+    },
+    onSelectionChange(fn) {
+      onChange = fn;
+    },
+    /** 按当前勾选重组文本；mode='all' 表示忽略勾选、全部接受。 */
+    compose(mode = 'accepted') {
+      const byStart = new Map(hunks.map((h) => [h.start, h]));
+      const out = [];
+      for (let i = 0; i < rows.length; i++) {
+        const h = byStart.get(i);
+        if (!h) {
+          if (rows[i].type === 'same') out.push(rows[i].text);
+          continue;
+        }
+        const take = mode === 'all' ? true : h.accepted;
+        for (let k = h.start; k <= h.end; k++) {
+          const r = rows[k];
+          if (take ? r.type === 'add' : r.type === 'del') out.push(r.text);
+        }
+        i = h.end;
+      }
+      return out.join('\n');
+    },
+  };
 }
 
 /* ------------------------------------------------------------------ 面板 */
@@ -250,11 +378,13 @@ export function createAi({ editor, onNeedConfig }) {
   const btnGen = $('ai-generate');
   const btnRegen = $('ai-regen');
   const btnApply = $('ai-apply');
+  const btnApplyAll = $('ai-apply-all');
   const btnCancel = $('ai-cancel');
 
   let action = 'polish';
   let scope = null;
   let result = null;
+  let view = null;
   let busy = false;
 
   chipsEl.innerHTML = '';
@@ -295,6 +425,7 @@ export function createAi({ editor, onNeedConfig }) {
     btnGen.disabled = on;
     btnRegen.disabled = on;
     btnApply.disabled = on;
+    btnApplyAll.disabled = on;
   }
 
   function showHint(text) {
@@ -305,11 +436,32 @@ export function createAi({ editor, onNeedConfig }) {
 
   function resetResult() {
     result = null;
+    view = null;
     metaEl.textContent = '';
     metaEl.classList.remove('error');
     btnApply.classList.add('hidden');
+    btnApplyAll.classList.add('hidden');
     btnGen.classList.remove('hidden');
-    showHint('选好动作后点「生成」。只把上面标明的范围发给模型，先看差异再决定是否应用。');
+    showHint(
+      '选好动作后点「生成」。只把上面标明的范围发给模型，先看差异再决定应用——每一处改动都能单独勾选。'
+    );
+  }
+
+  const took = (ms) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`);
+
+  /** 按钮与说明随勾选状态更新：全接受时只留主按钮，有跳过时出现「只应用已选」。 */
+  function refreshApplyState() {
+    if (!view || !result) return;
+    const total = view.changeCount;
+    const accepted = view.acceptedCount();
+    const partial = total > 0 && accepted < total;
+    btnApply.textContent = partial ? `只应用已选 ${accepted} 处` : '应用替换';
+    btnApply.disabled = accepted === 0;
+    btnApplyAll.classList.toggle('hidden', !partial);
+    metaEl.classList.remove('error');
+    metaEl.textContent = `${result.model || '模型'} · ${took(result.latency)}${
+      result.tokens ? ` · ${result.tokens} tokens` : ''
+    } · ${total} 处改动`;
   }
 
   function buildMessages() {
@@ -348,6 +500,7 @@ export function createAi({ editor, onNeedConfig }) {
 
     setBusy(true);
     btnApply.classList.add('hidden');
+    btnApplyAll.classList.add('hidden');
     hintEl.classList.add('hidden');
     diffEl.classList.remove('hidden');
     diffEl.className = 'ai-diff loading';
@@ -357,20 +510,20 @@ export function createAi({ editor, onNeedConfig }) {
 
     try {
       const res = await ipc.aiChat(buildMessages());
-      result = { text: cleanOutput(res.content), model: res.model, latency: res.latency_ms, usage: res.usage };
+      const text = cleanOutput(res.content);
+      const tokens =
+        res.usage && (res.usage.total_tokens || (res.usage.prompt_tokens || 0) + (res.usage.completion_tokens || 0));
+      result = { text, model: res.model, latency: res.latency_ms, tokens };
+      view = buildDiffView(scope.text, text);
+      view.onSelectionChange(refreshApplyState);
+
       diffEl.className = 'ai-diff';
       diffEl.innerHTML = '';
-      const head = document.createElement('div');
-      head.className = 'dl-head';
-      head.textContent = `差异预览 · ${scope.mode === 'selection' ? '选中部分' : '全文'}`;
-      diffEl.appendChild(head);
-      diffEl.appendChild(renderDiff(scope.text, result.text));
+      diffEl.appendChild(view.node);
 
-      const tokens = res.usage && (res.usage.total_tokens || (res.usage.prompt_tokens || 0) + (res.usage.completion_tokens || 0));
-      const took = result.latency < 1000 ? `${Math.round(result.latency)}ms` : `${(result.latency / 1000).toFixed(1)}s`;
-      metaEl.textContent = `${result.model || '模型'} · ${took}${tokens ? ` · ${tokens} tokens` : ''}`;
       btnApply.classList.remove('hidden');
       btnGen.classList.add('hidden');
+      refreshApplyState();
     } catch (e) {
       const msg = ipc.describeError(e);
       diffEl.className = 'ai-diff';
@@ -398,20 +551,33 @@ export function createAi({ editor, onNeedConfig }) {
     }
   }
 
-  function apply() {
-    if (!result || !scope) return;
+  function applyChanges(mode) {
+    if (!view || !scope) return;
     const cm = editor.cm;
     if (cm.getValue() !== scope.snapshot) {
       metaEl.textContent = '文档在生成期间被改动，为避免覆盖你的编辑，请重新生成';
       metaEl.classList.add('error');
       return;
     }
+    const total = view.changeCount;
+    const accepted = mode === 'all' ? total : view.acceptedCount();
+    if (total === 0) {
+      toast('模型没有给出改动', { error: true });
+      return;
+    }
+    if (accepted === 0) {
+      toast('没有勾选任何改动，先勾选要接受的部分', { error: true });
+      return;
+    }
+    const next = total ? view.compose(mode) : result.text;
     cm.operation(() => {
-      cm.replaceRange(result.text, scope.from, scope.to);
+      cm.replaceRange(next, scope.from, scope.to);
     });
     cm.focus();
     close();
-    toast('已应用 AI 修改，⌘Z 可撤销');
+    toast(
+      accepted === total ? '已应用全部修改，⌘Z 可撤销' : `已应用 ${accepted}/${total} 处修改，⌘Z 可撤销`
+    );
   }
 
   function open() {
@@ -429,11 +595,13 @@ export function createAi({ editor, onNeedConfig }) {
   function close() {
     dialog.classList.add('hidden');
     result = null;
+    view = null;
   }
 
   btnGen.addEventListener('click', generate);
   btnRegen.addEventListener('click', generate);
-  btnApply.addEventListener('click', apply);
+  btnApply.addEventListener('click', () => applyChanges('accepted'));
+  btnApplyAll.addEventListener('click', () => applyChanges('all'));
   btnCancel.addEventListener('click', close);
   $('ai-close').addEventListener('click', close);
   dialog.addEventListener('pointerdown', (e) => {
@@ -454,10 +622,10 @@ export function createAi({ editor, onNeedConfig }) {
     }
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      if (!btnApply.classList.contains('hidden')) apply();
+      if (!btnApply.classList.contains('hidden')) applyChanges('accepted');
       else generate();
     }
   });
 
-  return { open, close, isOpen: () => !dialog.classList.contains('hidden'), generate, apply };
+  return { open, close, isOpen: () => !dialog.classList.contains('hidden'), generate };
 }

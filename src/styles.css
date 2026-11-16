@@ -1301,3 +1301,49 @@ mark.add-hl { background: rgba(15, 138, 95, 0.28); color: inherit; border-radius
 .set-control.stack { flex-direction: column; align-items: stretch; gap: 6px; width: 240px; }
 .set-control.stack input, .set-control.stack select { width: 100%; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--bg); outline: none; font-size: 12px; }
 .set-control.stack input:focus, .set-control.stack select:focus { border-color: var(--accent); }
+
+/* 差异视图：顶部工具条 + 每个改动块的勾选头 */
+.ai-diff-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.ai-diff-count { letter-spacing: 0.01em; }
+.dh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+  border-top: 1px dashed var(--border);
+  margin-top: 2px;
+}
+.dh-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-dim);
+}
+.dh-check input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  margin: 0;
+}
+.dh-tag { opacity: 0.8; }
+.dh.off { opacity: 0.55; }
+.dl.off { opacity: 0.45; }
+.dl.off mark { background: transparent; }
