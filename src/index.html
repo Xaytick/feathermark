@@ -32,6 +32,12 @@
     <symbol id="i-feather" viewBox="0 0 24 24"><path d="M4 20c0-8 5-14 16-16 0 8-6 14-16 16z" /><path d="M4 20l6-6" /></symbol>
     <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" /></symbol>
     <symbol id="i-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5" /></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5h16v11H9l-5 3z" /><path d="M8 9.5h8M8 12.5h5" /></symbol>
+    <symbol id="i-attach" viewBox="0 0 24 24"><path d="M9 12.5l5-5a3 3 0 114.2 4.2l-7.5 7.5a5 5 0 01-7-7l8-8" /></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-3-6z" /><path d="M11 14l5-5" /></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14" /></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5H5v11h3" /></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z" /><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" /></symbol>
   </svg>
 
   <div id="app">
@@ -50,6 +56,7 @@
         <button class="icon-btn" id="btn-mode-split" title="分屏"><svg viewBox="0 0 24 24"><use href="#i-split" /></svg></button>
         <button class="icon-btn" id="btn-mode-preview" title="仅预览"><svg viewBox="0 0 24 24"><use href="#i-eye" /></svg></button>
         <span class="tb-sep"></span>
+        <button class="icon-btn" id="btn-chat" title="Agent 对话 (⌘L)"><svg viewBox="0 0 24 24"><use href="#i-chat" /></svg></button>
         <button class="icon-btn" id="btn-theme" title="切换主题"><svg viewBox="0 0 24 24"><use href="#i-moon" /></svg></button>
         <button class="icon-btn" id="btn-menu" title="更多"><svg viewBox="0 0 24 24"><use href="#i-more" /></svg></button>
       </div>
@@ -118,6 +125,58 @@
           </div>
         </section>
       </main>
+
+      <div id="splitter-chat" class="splitter vertical chat-splitter hidden"></div>
+
+      <aside id="chat-panel" class="hidden" aria-label="Agent 对话">
+        <header class="chat-head">
+          <div class="chat-head-title">
+            <svg viewBox="0 0 24 24"><use href="#i-spark" /></svg>
+            <span>Agent</span>
+          </div>
+          <div class="chat-head-actions">
+            <button class="mini-btn" id="chat-new" title="新建会话"><svg viewBox="0 0 24 24"><use href="#i-plus" /></svg></button>
+            <button class="mini-btn" id="chat-templates" title="问题模板">模板</button>
+            <button class="mini-btn" id="chat-skills" title="Skills">技能</button>
+            <button class="mini-btn" id="chat-close" title="收起 (⌘L)"><svg viewBox="0 0 24 24"><use href="#i-close" /></svg></button>
+          </div>
+        </header>
+
+        <div class="chat-session-bar">
+          <span class="chat-session-label">会话</span>
+          <button class="mini-btn" id="chat-sessions-toggle" title="展开/收起会话列表">⌄</button>
+        </div>
+        <div id="chat-sessions" class="chat-sessions"></div>
+
+        <div id="chat-messages" class="chat-messages">
+          <div class="chat-empty" id="chat-empty">
+            <svg viewBox="0 0 24 24"><use href="#i-spark" /></svg>
+            <div class="chat-empty-title">和 Agent 一起编辑</div>
+            <div class="chat-empty-sub">问问题、粘贴选区，或拖入文件与图片。回复可一键写回编辑器。</div>
+            <div class="chat-empty-actions">
+              <button class="btn ghost" data-template="polish">润色当前选区</button>
+              <button class="btn ghost" data-template="explain">解释这段代码</button>
+              <button class="btn ghost" data-template="layout">整理排版</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-compose">
+          <div class="chat-context-row">
+            <button class="chat-chip" id="chat-context-btn" title="切换是否携带当前文档上下文">上下文：当前文档</button>
+            <button class="chat-chip" id="chat-skill-chip" title="当前使用的 skill">无技能</button>
+          </div>
+          <div id="chat-attachments" class="chat-attachments"></div>
+          <div class="chat-input-wrap">
+            <textarea id="chat-input" rows="3" placeholder="问点什么…  ⌘↵ 发送" spellcheck="false"></textarea>
+          </div>
+          <div class="chat-compose-actions">
+            <button class="mini-btn" id="chat-attach" title="添加文件或图片"><svg viewBox="0 0 24 24"><use href="#i-attach" /></svg></button>
+            <span class="chat-hint" id="chat-hint">⌘↵ 发送</span>
+            <button class="btn" id="chat-send"><svg viewBox="0 0 24 24"><use href="#i-send" /></svg> 发送</button>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <footer id="statusbar">
@@ -128,6 +187,7 @@
       <div class="sb-right">
         <span id="sb-words" class="sb-item">0 字</span>
         <span id="sb-cursor" class="sb-item">行 1, 列 1</span>
+        <button class="sb-btn" id="sb-chat" title="Agent 对话 (⌘L)">Agent</button>
         <button class="sb-btn ai-btn" id="sb-ai" title="AI 编辑 (⌘J)">AI 编辑</button>
         <button class="sb-btn" id="sb-wrap" title="自动换行">换行</button>
         <button class="sb-btn" id="sb-split-dir" title="切换分屏方向">左右</button>

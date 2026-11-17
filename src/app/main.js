@@ -13,6 +13,7 @@ import { createSearch } from './search.js';
 import { createQuickOpen } from './quickopen.js';
 import { createSettings } from './settings.js';
 import { createAi } from './ai.js';
+import { createChat } from './chat.js';
 import * as exporters from './exporters.js';
 import * as ui from './ui.js';
 
@@ -37,6 +38,7 @@ let search = null;
 let quickopen = null;
 let settings = null;
 let ai = null;
+let chat = null;
 
 const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
 const uid = () => 't' + Math.random().toString(36).slice(2, 9);
@@ -82,6 +84,11 @@ function applyLayout() {
   ws.style.setProperty('--split', `${prefs.splitRatio}%`);
   $('sidebar').classList.toggle('hidden', !prefs.sidebarVisible);
   document.documentElement.style.setProperty('--sidebar-w', `${prefs.sidebarWidth}px`);
+  document.documentElement.style.setProperty('--chat-w', `${prefs.chatWidth || 380}px`);
+  $('chat-panel').classList.toggle('hidden', !prefs.chatVisible);
+  $('splitter-chat').classList.toggle('hidden', !prefs.chatVisible);
+  $('btn-chat').classList.toggle('active', !!prefs.chatVisible);
+  $('sb-chat').classList.toggle('on', !!prefs.chatVisible);
 
   $('btn-mode-editor').classList.toggle('active', prefs.viewMode === 'editor');
   $('btn-mode-split').classList.toggle('active', prefs.viewMode === 'split');
@@ -696,6 +703,10 @@ function setupShortcuts() {
           e.preventDefault();
           if (ai) ai.open();
           return;
+        case 'l':
+          e.preventDefault();
+          if (chat) chat.toggle();
+          return;
         case '=':
         case '+':
           e.preventDefault();
@@ -864,6 +875,33 @@ async function boot() {
 
   ai = createAi({ editor, onNeedConfig: () => openSettings() });
 
+  chat = createChat({
+    getContext: () => {
+      const tab = activeTab();
+      if (!tab) return null;
+      return {
+        path: tab.path,
+        name: tab.name,
+        doc: editor.getValue(),
+        selection: editor.cm.getSelection(),
+      };
+    },
+    getWorkspace: () => state.workspace,
+    insertText: (text, mode) => {
+      if (prefs.viewMode === 'preview') setViewMode('split');
+      if (mode === 'selection' && editor.cm.somethingSelected()) editor.cm.replaceSelection(text);
+      else {
+        const cur = editor.cm.getCursor();
+        editor.cm.replaceRange(text, cur);
+      }
+      editor.focus();
+      editor.cm.refresh();
+    },
+    openSettings: () => openSettings(),
+  });
+  chat.setRefresh(() => editor && editor.refresh());
+  chat.init();
+
   $('editor-pane').appendChild($('findbar'));
   findByCtl = setupFind();
 
@@ -874,6 +912,8 @@ async function boot() {
   $('btn-mode-editor').addEventListener('click', () => setViewMode('editor'));
   $('btn-mode-split').addEventListener('click', () => setViewMode('split'));
   $('btn-mode-preview').addEventListener('click', () => setViewMode('preview'));
+  $('btn-chat').addEventListener('click', () => chat.toggle());
+  $('sb-chat').addEventListener('click', () => chat.toggle());
   $('btn-theme').addEventListener('click', () => {
     prefs.themeMode = resolvedMode() === 'dark' ? 'light' : 'dark';
     savePrefs();
@@ -929,6 +969,16 @@ async function boot() {
     onEnd: () => savePrefs(),
   });
 
+  ui.dragSplitter($('splitter-chat'), {
+    onMove: (x) => {
+      const w = Math.max(300, Math.min(720, window.innerWidth - x));
+      prefs.chatWidth = w;
+      document.documentElement.style.setProperty('--chat-w', `${w}px`);
+      if (editor) editor.refresh();
+    },
+    onEnd: () => savePrefs(),
+  });
+
   ui.dragSplitter($('splitter-main'), {
     onMove: (x, y) => {
       const ws = $('workspace').getBoundingClientRect();
@@ -962,7 +1012,16 @@ async function boot() {
   try {
     getCurrentWebview().onDragDropEvent(async (event) => {
       if (event.payload.type !== 'drop') return;
-      for (const p of event.payload.paths || []) await openPath(p);
+      const paths = event.payload.paths || [];
+      const pos = event.payload.position;
+      if (chat && chat.isOpen() && pos) {
+        const r = chat.contextRect();
+        if (pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom) {
+          await chat.addPaths(paths);
+          return;
+        }
+      }
+      for (const p of paths) await openPath(p);
     });
   } catch (_) {}
 

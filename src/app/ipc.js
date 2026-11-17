@@ -76,6 +76,19 @@ export async function pickFiles({ multiple = true } = {}) {
   return Array.isArray(res) ? res : [res];
 }
 
+export async function pickAnyFiles() {
+  const res = await openDialog({
+    multiple: true,
+    directory: false,
+    filters: [
+      { name: '文件与图片', extensions: ['md', 'markdown', 'txt', 'json', 'yaml', 'yml', 'js', 'ts', 'css', 'html', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'pdf'] },
+      { name: '所有文件', extensions: ['*'] },
+    ],
+  });
+  if (!res) return [];
+  return Array.isArray(res) ? res : [res];
+}
+
 export async function pickFolder() {
   const res = await openDialog({ directory: true, multiple: false });
   return res || null;

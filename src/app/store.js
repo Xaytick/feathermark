@@ -19,6 +19,8 @@ export const DEFAULT_PREFS = {
   sidebarVisible: true,
   sidebarWidth: 248,
   sidebarPane: 'files',
+  chatVisible: false,
+  chatWidth: 380,
   lineWrap: true,
   lineNumbers: false,
   autoSave: false,
