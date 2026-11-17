@@ -15,7 +15,10 @@ import { buildDiffView } from './diff-view.js';
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const SKILL_KEY = 'feathermark.agent.skills.v1';
 const MAX_TEXT_ATTACH = 4000;
+const MAX_SESSIONS = 30;
+const MAX_MESSAGES = 50;
 const MAX_CONTEXT = 6000;
+const TEXT_ATTACH_RE = /\.(md|markdown|txt|json|ya?ml|js|mjs|cjs|ts|tsx|jsx|css|html|htm|xml|csv|log|ini|conf|toml|sql|sh|py|rs|go|java|c|h|cpp|hpp|rb|php|swift|kt|scala|vue|svelte)$/i;
 
 // 聊天用问题模板。会修改文档的编辑能力统一放在 EDIT_TEMPLATES，避免重复入口。
 const TEMPLATES = [
@@ -133,7 +136,18 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const active = () => allSessions.find((s) => s.id === activeId) || null;
   const enabledSkills = () => BUILTIN_SKILLS.filter((s) => skills[s.id]);
 
+  function enforceSessionLimits() {
+    if (allSessions.length > MAX_SESSIONS) {
+      allSessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      allSessions.length = MAX_SESSIONS;
+    }
+    for (const s of allSessions) {
+      if (s.messages && s.messages.length > MAX_MESSAGES) s.messages = s.messages.slice(-MAX_MESSAGES);
+    }
+  }
+
   function persist() {
+    enforceSessionLimits();
     save(SESSION_KEY, allSessions);
     save(SKILL_KEY, skills);
   }
@@ -414,8 +428,10 @@ function normalizeProposal(proposal, targetText) {
 
   function sourceLabel(b, idx) {
     const lang = b.lang ? ` · ${b.lang}` : '';
-    if (!b.closed) return `代码块 ${idx + 1}${lang}（未闭合，可能截断）`;
-    return `代码块 ${idx + 1}${lang}`;
+    const first = (b.text.split('\n').find((l) => l.trim()) || '').trim().slice(0, 18);
+    const snippet = first ? ` · ${first}${b.text.length > first.length ? '…' : ''}` : '';
+    if (!b.closed) return `代码块 ${idx + 1}${lang}${snippet}（未闭合，可能截断）`;
+    return `代码块 ${idx + 1}${lang}${snippet}`;
   }
 
   function rebuildApplyDiff() {
@@ -604,12 +620,16 @@ function normalizeProposal(proposal, targetText) {
       };
       attachments.push(a);
       if (!isImage) {
-        try {
-          const content = await ipc.readFile(path);
-          a.text = String(content || '').slice(0, MAX_TEXT_ATTACH);
-        } catch (e) {
-          a.status = 'error';
-          a.text = `（附件读取失败：${ipc.describeError(e)}）`;
+        if (!TEXT_ATTACH_RE.test(path)) {
+          a.text = '（二进制或未知格式，未读取内容）';
+        } else {
+          try {
+            const content = await ipc.readFile(path);
+            a.text = String(content || '').slice(0, MAX_TEXT_ATTACH);
+          } catch (e) {
+            a.status = 'error';
+            a.text = `（附件读取失败：${ipc.describeError(e)}）`;
+          }
         }
       }
     }
@@ -621,20 +641,23 @@ function normalizeProposal(proposal, targetText) {
     if (paths.length) await addPaths(paths);
   }
 
-  function buildContextMessage() {
-    if (!includeContext) return '';
-    const ctx = getContext();
-    if (!ctx) return '';
+  function buildContextMessage(attList = attachments) {
+    const ctx = includeContext ? getContext() : null;
     const parts = [];
-    parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}`);
-    const selected = ctx.selection && ctx.selection.trim();
-    if (selected) {
-      parts.push(`当前选中内容（${ctx.selection.length} 字）：\n${selected.slice(0, MAX_CONTEXT)}`);
-    } else if (ctx.doc) {
-      parts.push(`当前文档内容（截断至 ${MAX_CONTEXT} 字）：\n${ctx.doc.slice(0, MAX_CONTEXT)}`);
+    if (ctx) {
+      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}`);
+      const selected = ctx.selection && ctx.selection.trim();
+      if (selected) {
+        const clipped = selected.length > MAX_CONTEXT;
+        parts.push(`当前选中内容（${selected.length} 字${clipped ? `，截断至 ${MAX_CONTEXT} 字` : ''}）：\n${selected.slice(0, MAX_CONTEXT)}`);
+      } else if (ctx.doc) {
+        const clipped = ctx.doc.length > MAX_CONTEXT;
+        parts.push(`当前文档内容${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${ctx.doc.slice(0, MAX_CONTEXT)}`);
+      }
     }
-    if (attachments.length) {
-      const att = attachments
+    // 附件与文档上下文是两件事：关掉文档上下文时仍然要发送附件
+    if (attList.length) {
+      const att = attList
         .map((a) => {
           if (a.isImage) return `- 图片附件：${a.name}（路径 ${a.path}；模型是否支持视觉取决于当前服务商）`;
           return `- 文件附件：${a.name}\n${a.text || '（无可用文本）'}`;
@@ -684,7 +707,7 @@ function normalizeProposal(proposal, targetText) {
       ]
         .filter(Boolean)
         .join('\n');
-      const ctx = buildContextMessage();
+      const ctx = buildContextMessage(usedAttachments);
       const messages = [{ role: 'system', content: system }];
       if (ctx) messages.push({ role: 'user', content: ctx });
       messages.push(...history);
@@ -793,8 +816,8 @@ function normalizeProposal(proposal, targetText) {
     contextBtn.classList.toggle('on', includeContext);
     const ctx = getContext();
     contextBtn.textContent = includeContext
-      ? `上下文：${ctx ? ctx.name || ctx.path || '当前文档' : '当前文档'}`
-      : '上下文：关闭';
+      ? `文档上下文：${ctx ? ctx.name || ctx.path || '当前文档' : '当前文档'}`
+      : '文档上下文：关闭（附件仍会发送）';
   }
 
   function isOpen() {
@@ -835,6 +858,18 @@ function normalizeProposal(proposal, targetText) {
   $('apply-all').addEventListener('click', () => acceptApply('all'));
   applyDialog.addEventListener('pointerdown', (e) => {
     if (e.target === applyDialog) closeApply();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (applyDialog.classList.contains('hidden')) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeApply();
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (!btnApplyAccept.disabled) acceptApply('accepted');
+    }
   });
   $('chat-sessions-toggle').addEventListener('click', (e) => {
     sessionsEl.classList.toggle('collapsed');
