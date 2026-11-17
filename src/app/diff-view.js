@@ -129,6 +129,7 @@ export function buildDiffView(oldText, newText) {
       acceptedCount: () => 0,
       allAccepted: () => true,
       setAll: () => {},
+      onSelectionChange: () => {},
       compose: () => text,
     };
   };

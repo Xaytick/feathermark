@@ -1605,3 +1605,27 @@ html[data-mode='dark'] {
 #chat-panel.chat-dropping { box-shadow: inset 0 0 0 2px var(--accent); }
 
 #apply-dialog .ai-source { padding-bottom: 6px; }
+
+.apply-options { flex-direction: row; gap: 10px; }
+.apply-options .ai-param { flex: 1; min-width: 0; }
+.apply-warning {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(186, 117, 23, 0.4);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+.apply-warning.hidden { display: none; }
+.apply-warning strong { color: #ba7517; font-weight: 500; }
+.apply-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+.apply-confirm input { accent-color: var(--accent); }

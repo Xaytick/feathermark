@@ -242,7 +242,21 @@
         <span id="apply-scope" class="ai-scope"></span>
         <button class="mini-btn" id="apply-close" title="关闭">✕</button>
       </header>
-      <div class="ai-source">Agent 回复已转换为差异。勾选要接受的改动，确认后才会写入文档。</div>
+      <div class="ai-source">选择要应用的内容与范围，确认差异后才会写入文档。</div>
+      <div class="ai-params apply-options">
+        <div class="ai-param">
+          <label for="apply-source">应用内容</label>
+          <select id="apply-source"></select>
+        </div>
+        <div class="ai-param">
+          <label for="apply-target">替换范围</label>
+          <select id="apply-target">
+            <option value="selection">当前选区</option>
+            <option value="doc">整篇文档</option>
+          </select>
+        </div>
+      </div>
+      <div id="apply-warning" class="apply-warning hidden"></div>
       <div class="ai-body">
         <div id="apply-diff" class="ai-diff"></div>
       </div>
