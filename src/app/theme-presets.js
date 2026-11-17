@@ -87,6 +87,16 @@ export const ED_VAR_KEYS = [
   '--ed-cursor-width', '--ed-active-line',
 ];
 
+// 全组件换色时覆盖的 UI 变量键（这些变量原本由 data-mode/data-scheme 的 CSS 规则提供）
+export const UI_VAR_KEYS = [
+  '--bg', '--bg-app', '--bg-panel', '--bg-hover', '--bg-active',
+  '--border', '--border-strong',
+  '--text', '--text-dim', '--text-faint',
+  '--code-bg', '--code-border',
+  '--accent', '--accent-hover', '--accent-soft',
+  '--shadow-pop', '--shadow-sm', '--mark', '--scroll-thumb',
+];
+
 export const CANVASES = [
   { id: 'solid', name: '纯色', desc: '零干扰' },
   { id: 'dot', name: '点阵', desc: '细圆点' },
@@ -116,14 +126,65 @@ export function getPreset(id) {
 /** 把 hex（#RRGGBB）转成 rgb 三元组字符串，用于构造带透明度的纹理。 */
 function hexToRgb(hex) {
   const m = String(hex || '').match(/^#?([0-9a-f]{6})$/i);
-  if (!m) return '255, 255, 255';
+  if (!m) return { r: 255, g: 255, b: 255, str: '255, 255, 255' };
   const n = parseInt(m[1], 16);
-  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return { r, g, b, str: `${r}, ${g}, ${b}` };
+}
+
+/** 两色按 t 混合（t=0 取 a，t=1 取 b），返回 hex。 */
+function mixHex(a, b, t) {
+  const ca = hexToRgb(a), cb = hexToRgb(b);
+  const c = (x, y) => Math.round(x + (y - x) * t).toString(16).padStart(2, '0');
+  return '#' + c(ca.r, cb.r) + c(ca.g, cb.g) + c(ca.b, cb.b);
+}
+
+/** rgb 三元组转 rgba 字符串。 */
+function rgba(hex, alpha) {
+  return `rgba(${hexToRgb(hex).str}, ${alpha})`;
+}
+
+/**
+ * 从预设派生整站 UI 配色变量，让标题栏/侧栏/状态栏/Agent 面板/弹窗全部跟随预设。
+ * 深色预设让整个应用变深色——data-mode 由 main.js 据 preset.tone 强制切换，
+ * 这里再叠加预设自身的色相，实现「整个界面换色」。
+ */
+function deriveUiVars(preset, mode) {
+  const T = preset.tokens;
+  const bg = T['--ed-bg'];
+  const fg = T['--ed-fg'];
+  const dim = T['--ed-fg-muted'];
+  const faint = T['--ed-fg-faint'];
+  const border = T['--ed-border'];
+  const accent = T['--ed-accent'];
+  const dark = mode === 'dark' || preset.tone === 'dark';
+
+  return {
+    '--bg': bg,
+    '--bg-app': mixHex(bg, dark ? '#000000' : '#9aa5b5', dark ? 0.35 : 0.07),
+    '--bg-panel': mixHex(bg, fg, dark ? 0.055 : 0.022),
+    '--bg-hover': rgba(fg, dark ? 0.07 : 0.05),
+    '--bg-active': rgba(fg, dark ? 0.11 : 0.085),
+    '--border': border,
+    '--border-strong': mixHex(border, fg, dark ? 0.18 : 0.12),
+    '--text': fg,
+    '--text-dim': dim,
+    '--text-faint': faint,
+    '--code-bg': T['--ed-code-bg'],
+    '--code-border': T['--ed-code-border'],
+    '--accent': accent,
+    '--accent-hover': mixHex(accent, dark ? '#ffffff' : '#000000', dark ? 0.16 : 0.14),
+    '--accent-soft': rgba(accent, dark ? 0.18 : 0.12),
+    '--shadow-pop': dark ? '0 14px 38px rgba(0, 0, 0, 0.5)' : '0 12px 32px rgba(15, 23, 42, 0.14)',
+    '--shadow-sm': dark ? '0 1px 2px rgba(0, 0, 0, 0.3)' : '0 1px 2px rgba(15, 23, 42, 0.06)',
+    '--mark': T['--ed-string'],
+    '--scroll-thumb': rgba(fg, dark ? 0.2 : 0.18),
+  };
 }
 
 /** 生成画布纹理的 CSS background-image 值；solid 返回 'none'。 */
 export function canvasImage(canvasId, hex, strength) {
-  const rgb = hexToRgb(hex);
+  const rgb = hexToRgb(hex).str;
   const s = Math.max(0, Math.min(1, Number(strength) || 0));
   const alpha = (a) => (a * s).toFixed(3);
   switch (canvasId) {
@@ -157,6 +218,8 @@ export function themeVars(theme, mode) {
   if (!preset) return {};
   const vars = {};
   Object.entries(preset.tokens).forEach(([k, v]) => { vars[k] = v; });
+  // 全组件换色：把 UI 变量也覆盖成预设色板（深色预设 → 整个界面深色）
+  Object.assign(vars, deriveUiVars(preset, mode));
 
   const fg = preset.tokens['--ed-fg'];
   const isGrain = theme.canvas === 'grain';

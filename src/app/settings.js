@@ -375,7 +375,7 @@ export function createSettings({ body, onApply }) {
     const enableRow = document.createElement('div');
     enableRow.className = 'set-row';
     enableRow.innerHTML = '<div class="set-left"><div class="set-label">启用主题工作台</div>' +
-      '<div class="set-desc">接管编辑区与预览的配色、背景和排版；关闭则恢复默认外观</div></div>';
+      '<div class="set-desc">整个界面跟随预设配色（含明暗、强调色），编辑区另有背景与排版；关闭则恢复默认外观</div></div>';
     const enableCtrl = document.createElement('div');
     enableCtrl.className = 'set-control';
     const enableSwitch = toggle(theme.enabled, (v) => {

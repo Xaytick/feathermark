@@ -6,7 +6,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import * as ipc from './ipc.js';
 import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
 import { getScheme, deriveAccent } from './color-schemes.js';
-import { themeVars, ED_VAR_KEYS } from './theme-presets.js';
+import { themeVars, ED_VAR_KEYS, UI_VAR_KEYS, getPreset } from './theme-presets.js';
 import { createEditor } from './editor.js';
 import { createPreview, dirname } from './preview.js';
 import { createTabs } from './tabs.js';
@@ -45,6 +45,11 @@ const uid = () => 't' + Math.random().toString(36).slice(2, 9);
 
 /* ================================================================= 主题与布局 */
 function resolvedMode() {
+  // Theme Studio 启用时，明暗由所选预设决定（深色预设 → 整个应用深色）
+  if (prefs.theme && prefs.theme.enabled) {
+    const preset = getPreset(prefs.theme.preset);
+    if (preset) return preset.tone;
+  }
   if (prefs.themeMode === 'system') {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
@@ -76,7 +81,7 @@ function applyThemeStudio(root) {
   const style = root.style;
   const theme = prefs.theme;
   if (!theme || !theme.enabled) {
-    ED_VAR_KEYS.forEach((k) => style.removeProperty(k));
+    [...ED_VAR_KEYS, ...UI_VAR_KEYS].forEach((k) => style.removeProperty(k));
     root.removeAttribute('data-theme-studio');
     return;
   }
@@ -91,8 +96,11 @@ function applyTheme() {
   const changed = root.dataset.mode !== mode;
   root.dataset.mode = mode;
   root.dataset.scheme = prefs.scheme;
-  applySchemeColors(root);
+  // Theme Studio 启用时，整站配色（含强调色）由预设接管，跳过自定义强调色；
+  // 关闭时先清掉预设写入的所有变量，再应用自定义强调色。
+  const studioOn = !!(prefs.theme && prefs.theme.enabled);
   applyThemeStudio(root);
+  if (!studioOn) applySchemeColors(root);
   $('hljs-light').disabled = mode === 'dark';
   $('hljs-dark').disabled = mode !== 'dark';
   $('btn-theme').innerHTML = `<svg viewBox="0 0 24 24"><use href="#${mode === 'dark' ? 'i-sun' : 'i-moon'}" /></svg>`;
