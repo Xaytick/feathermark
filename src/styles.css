@@ -1432,10 +1432,13 @@ html[data-mode='dark'] {
   color: var(--text-faint);
   flex: none;
 }
+.chat-session-actions { display: flex; align-items: center; gap: 2px; }
 .chat-session-bar button { transform: rotate(-90deg); transition: transform var(--dur); }
+.chat-session-actions button { transform: none; font-size: 10px; padding: 2px 5px; }
 .chat-sessions.collapsed { display: none; }
 .chat-sessions.collapsed + .chat-messages .chat-empty { margin-top: 0; }
 .chat-session-bar button.collapsed { transform: rotate(0deg); }
+.chat-session-actions #chat-sessions-toggle.collapsed { transform: rotate(0deg); }
 .chat-sessions {
   max-height: 112px;
   overflow: auto;

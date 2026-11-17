@@ -7,10 +7,14 @@
 //
 // 只支持 OpenAI 兼容协议（/chat/completions + /models）：
 // DeepSeek、OpenAI、Moonshot、智谱、SiliconFlow、Ollama、vLLM、LM Studio 都吃这一套。
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AiConfig {
@@ -210,6 +214,24 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("初始化 HTTP 客户端失败：{}", e))
 }
 
+fn merge_extras(mut body: serde_json::Value, cfg: &AiConfig) -> Result<serde_json::Value, String> {
+    if !cfg.extra_body.trim().is_empty() {
+        let extra: serde_json::Value = serde_json::from_str(cfg.extra_body.trim())
+            .map_err(|e| format!("AI 额外参数不是合法 JSON：{}", e))?;
+        if let Some(obj) = extra.as_object() {
+            const RESERVED: &[&str] = &["model", "messages", "max_tokens", "stream"];
+            for (k, v) in obj {
+                if RESERVED.contains(&k.as_str()) {
+                    continue;
+                }
+                // skip_temperature 时允许 extra_body 显式指定 temperature（如 GLM 要求 1）
+                body[k.as_str()] = v.clone();
+            }
+        }
+    }
+    Ok(body)
+}
+
 /// 组装请求体：基础字段 + 服务商特有参数。
 /// extra_body 里的键不能覆盖核心字段，避免用户误配后把 messages 冲掉。
 fn build_body(
@@ -227,22 +249,227 @@ fn build_body(
     if !cfg.skip_temperature {
         body["temperature"] = serde_json::json!(temperature.unwrap_or(cfg.temperature));
     }
+    merge_extras(body, cfg)
+}
 
-    if !cfg.extra_body.trim().is_empty() {
-        let extra: serde_json::Value = serde_json::from_str(cfg.extra_body.trim())
-            .map_err(|e| format!("AI 额外参数不是合法 JSON：{}", e))?;
-        if let Some(obj) = extra.as_object() {
-            const RESERVED: &[&str] = &["model", "messages", "max_tokens", "stream"];
-            for (k, v) in obj {
-                if RESERVED.contains(&k.as_str()) {
+fn build_stream_body(
+    cfg: &AiConfig,
+    messages: Vec<ChatMessage>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::json!({
+        "model": cfg.model,
+        "messages": messages,
+        "max_tokens": max_tokens.unwrap_or(cfg.max_tokens),
+        "stream": true,
+    });
+    if !cfg.skip_temperature {
+        body["temperature"] = serde_json::json!(temperature.unwrap_or(cfg.temperature));
+    }
+    merge_extras(body, cfg)
+}
+
+/// 流式请求的取消标记。每个 request_id 一个 AtomicBool，前端点「停止」时置 true。
+#[derive(Default)]
+pub struct StreamCancels(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
+
+fn stream_cancel_flag(state: &tauri::State<'_, StreamCancels>, request_id: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(request_id.to_string(), flag.clone());
+    flag
+}
+
+fn stream_cleanup(state: &tauri::State<'_, StreamCancels>, request_id: &str) {
+    state.0.lock().unwrap().remove(request_id);
+}
+
+fn emit_stream(app: &tauri::AppHandle, request_id: &str, kind: &str, payload: serde_json::Value) {
+    let _ = app.emit(
+        "ai-chat-stream",
+        serde_json::json!({
+            "request_id": request_id,
+            "type": kind,
+            "payload": payload,
+        }),
+    );
+}
+
+fn sse_error_hint(status: reqwest::StatusCode) -> &'static str {
+    match status.as_u16() {
+        401 | 403 => "（API Key 无效或无权限）",
+        404 => "（接口路径不对，Base URL 通常需要以 /v1 结尾）",
+        429 => "（触发限流，稍后再试）",
+        402 => "（账户余额不足）",
+        _ => "",
+    }
+}
+
+/// 流式聊天：把 OpenAI 兼容 SSE 转成 tauri 事件发给前端，同时返回最终结果。
+#[tauri::command]
+pub async fn ai_chat_stream(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, StreamCancels>,
+    request_id: String,
+    messages: Vec<ChatMessage>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+) -> Result<serde_json::Value, String> {
+    let cfg = load_config(&app)?;
+    if cfg.base_url.trim().is_empty() || cfg.model.trim().is_empty() {
+        return Err("AI 还没配置：请到 设置 → AI 填入接口地址和模型".to_string());
+    }
+    if cfg.api_key.is_empty()
+        && !cfg.base_url.contains("localhost")
+        && !cfg.base_url.contains("127.0.0.1")
+    {
+        return Err("还没有填 API Key：请到 设置 → AI 配置".to_string());
+    }
+
+    let body = build_stream_body(&cfg, messages, max_tokens, temperature)?;
+    let cancel = stream_cancel_flag(&state, &request_id);
+
+    let mut req = client()?
+        .post(endpoint(&cfg, "chat/completions"))
+        .json(&body);
+    if !cfg.api_key.is_empty() {
+        req = req.bearer_auth(&cfg.api_key);
+    }
+
+    let started = Instant::now();
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            stream_cleanup(&state, &request_id);
+            let msg = friendly_error(&e);
+            emit_stream(&app, &request_id, "error", serde_json::json!({ "message": msg }));
+            return Err(msg);
+        }
+    };
+
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        stream_cleanup(&state, &request_id);
+        let msg = format!(
+            "接口返回 {} {}{}\n{}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or(""),
+            sse_error_hint(status),
+            truncate(text.trim(), 500)
+        );
+        emit_stream(&app, &request_id, "error", serde_json::json!({ "message": msg }));
+        return Err(msg);
+    }
+
+    let mut buf = String::new();
+    let mut content = String::new();
+    let mut model = cfg.model.clone();
+    let mut usage = serde_json::Value::Null;
+    let mut finish_reason = String::new();
+
+    let mut stream = resp.bytes_stream();
+    while let Some(item) = stream.next().await {
+        if cancel.load(Ordering::SeqCst) {
+            stream_cleanup(&state, &request_id);
+            emit_stream(&app, &request_id, "cancelled", serde_json::json!({ "content": content }));
+            return Ok(serde_json::json!({
+                "content": content,
+                "model": model,
+                "usage": usage,
+                "finish_reason": "cancelled",
+                "latency_ms": started.elapsed().as_millis(),
+                "cancelled": true,
+            }));
+        }
+        let chunk = match item {
+            Ok(c) => c,
+            Err(e) => {
+                stream_cleanup(&state, &request_id);
+                let msg = format!("流式读取失败：{}", e);
+                emit_stream(&app, &request_id, "error", serde_json::json!({ "message": msg }));
+                return Err(msg);
+            }
+        };
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(pos) = buf.find("\n\n") {
+            let event = buf[..pos].to_string();
+            buf.drain(..pos + 2);
+            for line in event.lines() {
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                let data = data.trim_start();
+                if data == "[DONE]" {
                     continue;
                 }
-                // skip_temperature 时允许 extra_body 显式指定 temperature（如 GLM 要求 1）
-                body[k.as_str()] = v.clone();
+                let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                if let Some(m) = j["model"].as_str() {
+                    if !m.is_empty() {
+                        model = m.to_string();
+                    }
+                }
+                if !j["usage"].is_null() {
+                    usage = j["usage"].clone();
+                }
+                if let Some(f) = j["choices"][0]["finish_reason"].as_str() {
+                    if !f.is_empty() {
+                        finish_reason = f.to_string();
+                    }
+                }
+                if let Some(delta) = j["choices"][0]["delta"]["content"].as_str() {
+                    if !delta.is_empty() {
+                        content.push_str(delta);
+                        emit_stream(
+                            &app,
+                            &request_id,
+                            "chunk",
+                            serde_json::json!({ "delta": delta }),
+                        );
+                    }
+                } else if let Some(reasoning) = j["choices"][0]["delta"]["reasoning_content"].as_str() {
+                    // 推理型模型会先输出 reasoning_content；不展示原文，只让用户知道模型在思考
+                    if !reasoning.is_empty() {
+                        emit_stream(&app, &request_id, "thinking", serde_json::json!({}));
+                    }
+                }
             }
         }
     }
-    Ok(body)
+
+    stream_cleanup(&state, &request_id);
+    let latency_ms = started.elapsed().as_millis();
+    emit_stream(
+        &app,
+        &request_id,
+        "done",
+        serde_json::json!({
+            "content": content,
+            "model": model,
+            "usage": usage,
+            "finish_reason": finish_reason,
+            "latency_ms": latency_ms,
+        }),
+    );
+    Ok(serde_json::json!({
+        "content": content,
+        "model": model,
+        "usage": usage,
+        "finish_reason": finish_reason,
+        "latency_ms": latency_ms,
+        "cancelled": false,
+    }))
+}
+
+/// 停止一个进行中的流式请求。
+#[tauri::command]
+pub fn ai_chat_stream_cancel(state: tauri::State<'_, StreamCancels>, request_id: String) -> Result<(), String> {
+    if let Some(flag) = state.0.lock().unwrap().get(&request_id) {
+        flag.store(true, Ordering::SeqCst);
+    }
+    Ok(())
 }
 
 /// 主调用：把 messages 发给模型，返回正文 + 用量 + 耗时。
@@ -438,6 +665,14 @@ mod tests {
         assert_eq!(body["temperature"], 1);
         assert_eq!(body["thinking"]["type"], "enabled");
         assert_eq!(body["reasoning_effort"], "low");
+    }
+
+    #[test]
+    fn stream_body_marks_stream_true() {
+        let cfg = AiConfig::default();
+        let body = build_stream_body(&cfg, msg(), Some(256), Some(0.2)).unwrap();
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["max_tokens"], 256);
     }
 
     #[test]

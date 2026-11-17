@@ -843,6 +843,7 @@ pub fn run() {
             }
         }))
         .manage(WatcherState(Mutex::new(None)))
+        .manage(ai::StreamCancels::default())
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             get_cli_args,
@@ -876,6 +877,8 @@ pub fn run() {
             ai::ai_config_set,
             ai::ai_config_clear_key,
             ai::ai_chat,
+            ai::ai_chat_stream,
+            ai::ai_chat_stream_cancel,
             ai::ai_test,
             ai::ai_models,
         ])

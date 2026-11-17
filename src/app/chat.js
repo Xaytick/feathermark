@@ -5,6 +5,7 @@
 // - 附件只保存路径与文本摘要：图片给预览 URL，文本文件读前若干字符作为上下文；
 //   不把二进制塞进 localStorage，也不假设模型一定支持 vision。
 // - AI 请求复用 ipc.aiChat（密钥仍只在 Rust 侧），失败不静默重试，直接显示可操作错误。
+import { listen } from '@tauri-apps/api/event';
 import * as ipc from './ipc.js';
 import { prefs, savePrefs } from './store.js';
 import { showMenu, toast, promptDialog } from './ui.js';
@@ -125,6 +126,8 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let applyScope = null;
   let applyMsg = null;
   let applyParsed = null;
+  let streamRequestId = null;
+  let lastLimitToast = 0;
 
   const skills = Object.assign(
     {},
@@ -137,19 +140,29 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const enabledSkills = () => BUILTIN_SKILLS.filter((s) => skills[s.id]);
 
   function enforceSessionLimits() {
+    let dropped = false;
     if (allSessions.length > MAX_SESSIONS) {
       allSessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       allSessions.length = MAX_SESSIONS;
+      dropped = true;
     }
     for (const s of allSessions) {
-      if (s.messages && s.messages.length > MAX_MESSAGES) s.messages = s.messages.slice(-MAX_MESSAGES);
+      if (s.messages && s.messages.length > MAX_MESSAGES) {
+        s.messages = s.messages.slice(-MAX_MESSAGES);
+        dropped = true;
+      }
     }
+    return dropped;
   }
 
   function persist() {
-    enforceSessionLimits();
+    const dropped = enforceSessionLimits();
     save(SESSION_KEY, allSessions);
     save(SKILL_KEY, skills);
+    if (dropped && Date.now() - lastLimitToast > 4000) {
+      lastLimitToast = Date.now();
+      toast(`会话较多，已自动清理到 ${MAX_SESSIONS} 个会话 / 每会话 ${MAX_MESSAGES} 条消息`, { duration: 3200 });
+    }
   }
 
   function titleFrom(text) {
@@ -288,13 +301,20 @@ function normalizeProposal(proposal, targetText) {
     const status = document.createElement('span');
     status.className = 'status' + (msg.status === 'error' ? ' error' : '');
     if (msg.status === 'sending') status.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span>';
+    else if (msg.status === 'thinking') status.textContent = '思考中';
+    else if (msg.status === 'streaming') status.textContent = '生成中';
+    else if (msg.status === 'stopped') status.textContent = '已停止';
     else if (msg.status === 'error') status.textContent = '失败';
     else if (msg.role === 'user' && msg.status === 'sent') status.textContent = '已发送';
     head.append(who, time, status);
 
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
-    if (msg.content) {
+    if (msg.status === 'thinking') {
+      body.textContent = '正在思考…';
+    } else if (msg.status === 'streaming') {
+      body.textContent = (msg.content || '') + ' ▌';
+    } else if (msg.content) {
       if (msg.role === 'assistant' && window.UnifiedRenderer) {
         try {
           body.classList.add('markdown-body');
@@ -550,8 +570,20 @@ function normalizeProposal(proposal, targetText) {
     editor.cm.operation(() => editor.cm.replaceRange(next, applyScope.from, applyScope.to));
     editor.cm.focus();
     editor.cm.refresh();
+    const applied = accepted;
+    const all = total;
     closeApply();
-    toast(accepted === total ? '已同意修改，⌘Z 可撤销' : `已应用 ${accepted}/${total} 处修改，⌘Z 可撤销`);
+    pushSystemNote(`已应用修改（${applied}/${all} 处）到当前文档，⌘Z 可撤销。`);
+    toast(applied === all ? '已同意修改，⌘Z 可撤销' : `已应用 ${applied}/${all} 处修改，⌘Z 可撤销`);
+  }
+
+  function pushSystemNote(text) {
+    const s = ensureSession();
+    s.messages.push({ id: uid(), role: 'system', content: text, ts: Date.now(), status: 'sent' });
+    s.updatedAt = Date.now();
+    persist();
+    renderMessages();
+    renderSessions();
   }
 
   function renderMessages() {
@@ -668,6 +700,17 @@ function normalizeProposal(proposal, targetText) {
     return parts.join('\n\n');
   }
 
+  function estimateTokens(text) {
+    return Math.max(1, Math.round(String(text || '').length / 2.2));
+  }
+
+  async function cancelStream() {
+    if (!streamRequestId) return;
+    try {
+      await ipc.aiChatStreamCancel(streamRequestId);
+    } catch (_) {}
+  }
+
   async function send(text, overrideAttachments = null) {
     const content = String(text || inputEl.value || '').trim();
     if (!content || busy) return;
@@ -712,14 +755,51 @@ function normalizeProposal(proposal, targetText) {
       if (ctx) messages.push({ role: 'user', content: ctx });
       messages.push(...history);
 
-      const res = await ipc.aiChat(messages, { maxTokens: 2048, temperature: 0.3 });
-      assistantMsg.content = String(res.content || '').trim();
-      assistantMsg.status = 'sent';
+      if (includeContext) {
+        const c = getContext();
+        const raw = c ? (c.selection && c.selection.trim() ? c.selection : c.doc || '') : '';
+        if (raw.length > MAX_CONTEXT) {
+          toast(`文档较长，本次上下文只发送前 ${MAX_CONTEXT} 字`, { duration: 3200 });
+        }
+      }
+
+      const requestId = uid();
+      streamRequestId = requestId;
+      assistantMsg.status = 'streaming';
+      renderMessages();
+      const unlisten = await listen('ai-chat-stream', (event) => {
+        const p = event.payload || {};
+        if (p.request_id !== requestId) return;
+        const payload = p.payload || {};
+        if (p.type === 'thinking') {
+          if (!assistantMsg.content) {
+            assistantMsg.status = 'thinking';
+            renderMessages();
+          }
+        } else if (p.type === 'chunk') {
+          assistantMsg.content += String(payload.delta || '');
+          assistantMsg.status = 'streaming';
+          renderMessages();
+        } else if (p.type === 'cancelled') {
+          assistantMsg.status = 'stopped';
+        }
+      });
+
+      let res;
+      try {
+        res = await ipc.aiChatStream(requestId, messages, { maxTokens: 2048, temperature: 0.3 });
+      } finally {
+        unlisten();
+        streamRequestId = null;
+      }
+
+      assistantMsg.content = String(res.content || assistantMsg.content || '').trim();
+      assistantMsg.status = res.cancelled || res.finish_reason === 'cancelled' ? 'stopped' : 'sent';
       assistantMsg.model = res.model;
       assistantMsg.latency = res.latency_ms;
       assistantMsg.finishReason = res.finish_reason;
-      userMsg.status = 'sent';
-      userMsg.attachments.forEach((a) => (a.status = 'sent'));
+      userMsg.status = res.cancelled ? 'stopped' : 'sent';
+      userMsg.attachments.forEach((a) => (a.status = res.cancelled ? 'ready' : 'sent'));
       s.updatedAt = Date.now();
     } catch (e) {
       const msg = ipc.describeError(e);
@@ -740,10 +820,23 @@ function normalizeProposal(proposal, targetText) {
     }
   }
 
+  function sendIcon(name) {
+    return `<svg viewBox="0 0 24 24"><use href="#${name}" /></svg>`;
+  }
+
   function updateSendState() {
     const hasText = !!inputEl.value.trim();
-    sendBtn.disabled = busy || !hasText;
-    hintEl.textContent = busy ? 'Agent 正在回复…' : '⌘↵ 发送';
+    if (busy) {
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = `${sendIcon('i-close')} 停止`;
+      hintEl.textContent = streamRequestId ? '正在生成…点击「停止」' : 'Agent 正在回复…';
+      return;
+    }
+    sendBtn.disabled = !hasText;
+    sendBtn.innerHTML = `${sendIcon('i-send')} 发送`;
+    const ctx = buildContextMessage(attachments);
+    const est = estimateTokens(`${inputEl.value || ''}\n${ctx || ''}`);
+    hintEl.textContent = `⌘↵ 发送 · 上下文约 ${est} tokens`;
   }
 
   function fillPrompt(text) {
@@ -871,6 +964,31 @@ function normalizeProposal(proposal, targetText) {
       if (!btnApplyAccept.disabled) acceptApply('accepted');
     }
   });
+  $('chat-export').addEventListener('click', () => {
+    const s = active();
+    if (!s || !s.messages.length) {
+      toast('当前会话还没有内容', { error: true });
+      return;
+    }
+    const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `feathermark-chat-${Date.now()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('chat-clear').addEventListener('click', async () => {
+    const s = active();
+    if (!s || !s.messages.length) return;
+    const ok = await ipc.confirmDialog('确定清空当前会话？此操作不可撤销。');
+    if (!ok) return;
+    s.messages = [];
+    s.title = '新会话';
+    s.updatedAt = Date.now();
+    persist();
+    renderSessions();
+    renderMessages();
+  });
   $('chat-sessions-toggle').addEventListener('click', (e) => {
     sessionsEl.classList.toggle('collapsed');
     e.currentTarget.classList.toggle('collapsed');
@@ -887,7 +1005,13 @@ function normalizeProposal(proposal, targetText) {
       send();
     }
   });
-  sendBtn.addEventListener('click', () => send());
+  sendBtn.addEventListener('click', () => {
+    if (busy) {
+      cancelStream();
+      return;
+    }
+    send();
+  });
 
   emptyEl.addEventListener('click', (e) => {
     const editBtn = e.target.closest('[data-edit-template]');

@@ -27,7 +27,8 @@ imagesize = "0.13"
 regex = "1"
 base64 = "0.22"
 # 远端图片内联（导出单文件 HTML 时把网络图片转 base64），纯 rustls 不依赖系统 OpenSSL
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+futures-util = "0.3"
 # 系统字体枚举（纯 Rust，Windows/macOS/Linux 统一走 fontdb）
 fontdb = "0.24"
 

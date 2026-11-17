@@ -61,6 +61,14 @@ export const aiChat = (messages, opts = {}) =>
     maxTokens: opts.maxTokens ?? null,
     temperature: opts.temperature ?? null,
   });
+export const aiChatStream = (requestId, messages, opts = {}) =>
+  call('ai_chat_stream', {
+    requestId,
+    messages,
+    maxTokens: opts.maxTokens ?? null,
+    temperature: opts.temperature ?? null,
+  });
+export const aiChatStreamCancel = (requestId) => call('ai_chat_stream_cancel', { requestId });
 export const aiTest = () => call('ai_test');
 export const aiModels = () => call('ai_models');
 

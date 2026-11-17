@@ -145,7 +145,11 @@
 
         <div class="chat-session-bar">
           <span class="chat-session-label">会话</span>
-          <button class="mini-btn" id="chat-sessions-toggle" title="展开/收起会话列表">⌄</button>
+          <div class="chat-session-actions">
+            <button class="mini-btn" id="chat-export" title="导出当前会话">导出</button>
+            <button class="mini-btn" id="chat-clear" title="清空当前会话">清空</button>
+            <button class="mini-btn" id="chat-sessions-toggle" title="展开/收起会话列表">⌄</button>
+          </div>
         </div>
         <div id="chat-sessions" class="chat-sessions"></div>
 
