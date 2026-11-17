@@ -6,6 +6,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import * as ipc from './ipc.js';
 import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
 import { getScheme, deriveAccent } from './color-schemes.js';
+import { themeVars, ED_VAR_KEYS } from './theme-presets.js';
 import { createEditor } from './editor.js';
 import { createPreview, dirname } from './preview.js';
 import { createTabs } from './tabs.js';
@@ -69,6 +70,21 @@ function applySchemeColors(root) {
   style.setProperty('--accent-soft', accent.soft);
 }
 
+// Theme Studio：把编辑区主题预设的 token / 画布纹理 / 排版参数写成 inline 变量。
+// 关闭时逐个移除 --ed-*，让 styles.css 里的默认值（跟随原有明/暗主题）生效。
+function applyThemeStudio(root) {
+  const style = root.style;
+  const theme = prefs.theme;
+  if (!theme || !theme.enabled) {
+    ED_VAR_KEYS.forEach((k) => style.removeProperty(k));
+    root.removeAttribute('data-theme-studio');
+    return;
+  }
+  const vars = themeVars(theme, resolvedMode());
+  Object.entries(vars).forEach(([k, v]) => style.setProperty(k, v));
+  root.dataset.themeStudio = theme.preset || 'ink';
+}
+
 function applyTheme() {
   const mode = resolvedMode();
   const root = document.documentElement;
@@ -76,6 +92,7 @@ function applyTheme() {
   root.dataset.mode = mode;
   root.dataset.scheme = prefs.scheme;
   applySchemeColors(root);
+  applyThemeStudio(root);
   $('hljs-light').disabled = mode === 'dark';
   $('hljs-dark').disabled = mode !== 'dark';
   $('btn-theme').innerHTML = `<svg viewBox="0 0 24 24"><use href="#${mode === 'dark' ? 'i-sun' : 'i-moon'}" /></svg>`;
@@ -647,6 +664,10 @@ function onPrefChange(key, value) {
     return;
   }
   if (key === 'themeMode' || key === 'scheme') applyTheme();
+  else if (key === 'theme') {
+    applyTheme();
+    if (preview && activeTab()) scheduleRender(true);
+  }
   else if (['editorFont', 'editorSize', 'previewFont', 'previewSize', 'codeFont', 'codeSize'].includes(key)) applyFonts();
   else if (['viewMode', 'splitDir', 'sidebarVisible'].includes(key)) applyLayout();
   else if (key === 'lineWrap' || key === 'lineNumbers') applyLayout();

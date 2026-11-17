@@ -4,9 +4,20 @@
 const PREFS_KEY = 'feathermark.prefs.v1';
 const SESSION_KEY = 'feathermark.session.v1';
 
+// Theme Studio 的默认配置（与 theme-presets.js 的 DEFAULT_THEME 保持一致，
+// 内联在此避免 store 依赖预设模块；新增字段时两处同步）。
+export const DEFAULT_THEME = {
+  enabled: false,
+  preset: 'ink',
+  canvas: 'solid',
+  canvasStrength: 0.5,
+  typography: { lineHeight: 1.68, letterSpacing: 0, maxWidth: 860, activeLine: true, cursorWidth: 2 },
+};
+
 export const DEFAULT_PREFS = {
   themeMode: 'light', // light | dark | system
   scheme: 'ink', // ink | forest | amber | violet
+  theme: JSON.parse(JSON.stringify(DEFAULT_THEME)), // Theme Studio 配置
   editorFont: '',
   editorSize: 15,
   previewFont: '',
@@ -45,7 +56,11 @@ function write(key, value) {
   }
 }
 
-export const prefs = Object.assign({}, DEFAULT_PREFS, read(PREFS_KEY) || {});
+const stored = read(PREFS_KEY) || {};
+export const prefs = Object.assign({}, DEFAULT_PREFS, stored);
+// 深合并 theme：旧配置缺字段时逐项补默认值，避免 undefined
+prefs.theme = Object.assign({}, DEFAULT_THEME, stored.theme || {});
+prefs.theme.typography = Object.assign({}, DEFAULT_THEME.typography, (stored.theme && stored.theme.typography) || {});
 
 export function savePrefs() {
   write(PREFS_KEY, prefs);

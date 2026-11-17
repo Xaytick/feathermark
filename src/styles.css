@@ -1824,3 +1824,172 @@ html[data-mode='dark'] {
   outline: none;
 }
 .chat-model-row select:focus { border-color: var(--accent); }
+
+/* ==================================================================
+   Theme Studio：编辑区主题（html[data-theme-studio] 作用域）
+   仅当启用 Theme Studio 时生效；inline --ed-* 由 theme-presets.js 注入。
+   未启用时编辑区完全沿用上方基于 --text/--bg 的默认样式。
+   ================================================================== */
+
+/* 编辑区与预览区画布底色 */
+html[data-theme-studio] #editor-host,
+html[data-theme-studio] #preview-scroll { background: var(--ed-bg); }
+html[data-theme-studio] #editor-pane,
+html[data-theme-studio] #preview-pane { background: var(--ed-bg); }
+
+/* 背景纹理层：铺在 CodeMirror 行容器与预览正文之上，不拦截点击 */
+html[data-theme-studio] .CodeMirror-lines,
+html[data-theme-studio] #preview {
+  background-image: var(--ed-canvas-image);
+  background-size: var(--ed-canvas-size);
+  background-position: var(--ed-canvas-position);
+  background-repeat: repeat;
+}
+
+/* CodeMirror 正文与排版 */
+html[data-theme-studio] .CodeMirror {
+  color: var(--ed-fg);
+  line-height: var(--ed-line-height);
+  letter-spacing: var(--ed-letter-spacing);
+}
+html[data-theme-studio] .CodeMirror pre.CodeMirror-line,
+html[data-theme-studio] .CodeMirror pre.CodeMirror-line-like { padding-left: 20px; }
+html[data-theme-studio] .CodeMirror-cursor { border-left-color: var(--ed-cursor); border-left-width: var(--ed-cursor-width); }
+html[data-theme-studio] .CodeMirror-selected,
+html[data-theme-studio] .CodeMirror-focused .CodeMirror-selected { background: var(--ed-selection) !important; }
+html[data-theme-studio] .CodeMirror-line::selection,
+html[data-theme-studio] .CodeMirror-line > span::selection,
+html[data-theme-studio] .CodeMirror-line > span > span::selection { background: var(--ed-selection); }
+html[data-theme-studio] .CodeMirror-activeline-background { background: var(--ed-active-line); }
+html[data-theme-studio] .CodeMirror-linenumber,
+html[data-theme-studio] .CodeMirror-foldgutter-open::after,
+html[data-theme-studio] .CodeMirror-foldgutter-folded::after { color: var(--ed-fg-faint); }
+html[data-theme-studio] .CodeMirror-matchingbracket { color: var(--ed-accent) !important; border-bottom-color: var(--ed-accent); }
+
+/* 源码里的 Markdown 标记语法高亮 */
+html[data-theme-studio] .cm-s-default .cm-header { color: var(--ed-h); }
+html[data-theme-studio] .cm-s-default .cm-formatting-header { color: var(--ed-accent); }
+html[data-theme-studio] .cm-s-default .cm-strong { color: var(--ed-strong); }
+html[data-theme-studio] .cm-s-default .cm-em { color: var(--ed-em); }
+html[data-theme-studio] .cm-s-default .cm-formatting-strong,
+html[data-theme-studio] .cm-s-default .cm-formatting-em { color: var(--ed-accent); }
+html[data-theme-studio] .cm-s-default .cm-link,
+html[data-theme-studio] .cm-s-default .cm-url { color: var(--ed-link); }
+html[data-theme-studio] .cm-s-default .cm-quote { color: var(--ed-quote); }
+html[data-theme-studio] .cm-s-default .cm-comment { color: var(--ed-fg-muted); background: var(--ed-code-bg); }
+html[data-theme-studio] .cm-s-default .cm-string { color: var(--ed-string); }
+html[data-theme-studio] .cm-s-default .cm-keyword { color: var(--ed-keyword); }
+html[data-theme-studio] .cm-s-default .cm-number { color: var(--ed-number); }
+html[data-theme-studio] .cm-s-default .cm-variable-2,
+html[data-theme-studio] .cm-s-default .cm-def { color: var(--ed-fg); }
+html[data-theme-studio] .cm-s-default .cm-tag { color: var(--ed-tag); }
+html[data-theme-studio] .cm-s-default .cm-attribute { color: var(--ed-attribute); }
+html[data-theme-studio] .cm-s-default .cm-hr { color: var(--ed-fg-faint); }
+html[data-theme-studio] .cm-s-default .cm-variable-3,
+html[data-theme-studio] .cm-s-default .cm-type { color: var(--ed-type); }
+
+/* 预览正文 */
+html[data-theme-studio] .markdown-body {
+  color: var(--ed-fg);
+  line-height: var(--ed-line-height);
+  letter-spacing: var(--ed-letter-spacing);
+  max-width: var(--ed-max-width);
+}
+html[data-theme-studio] #preview { max-width: var(--ed-max-width); }
+html[data-theme-studio] .markdown-body h1,
+html[data-theme-studio] .markdown-body h2,
+html[data-theme-studio] .markdown-body h3,
+html[data-theme-studio] .markdown-body h4,
+html[data-theme-studio] .markdown-body h5,
+html[data-theme-studio] .markdown-body h6 { color: var(--ed-h); }
+html[data-theme-studio] .markdown-body h1,
+html[data-theme-studio] .markdown-body h2 { border-bottom-color: var(--ed-border); }
+html[data-theme-studio] .markdown-body hr { border-top-color: var(--ed-border); }
+html[data-theme-studio] .markdown-body a { color: var(--ed-link); border-bottom-color: var(--ed-selection); }
+html[data-theme-studio] .markdown-body a:hover { border-bottom-color: var(--ed-link); }
+html[data-theme-studio] .markdown-body del,
+html[data-theme-studio] .markdown-body h6,
+html[data-theme-studio] .markdown-body li::marker { color: var(--ed-fg-faint); }
+html[data-theme-studio] .markdown-body blockquote {
+  color: var(--ed-quote);
+  border-left-color: var(--ed-border);
+  background: var(--ed-quote-bg);
+}
+html[data-theme-studio] .markdown-body code {
+  background: var(--ed-code-bg);
+  border-color: var(--ed-code-border);
+}
+html[data-theme-studio] .markdown-body pre {
+  background: var(--ed-code-bg);
+  border-color: var(--ed-code-border);
+}
+html[data-theme-studio] .markdown-body th,
+html[data-theme-studio] .markdown-body tr:nth-child(2n) td,
+html[data-theme-studio] .markdown-body kbd { background: var(--ed-quote-bg); }
+html[data-theme-studio] .markdown-body table th,
+html[data-theme-studio] .markdown-body table td { border-color: var(--ed-border); }
+html[data-theme-studio] .markdown-body input[type='checkbox']:checked {
+  background: var(--ed-accent);
+  border-color: var(--ed-accent);
+}
+html[data-theme-studio] .markdown-body .code-lang { color: var(--ed-fg-faint); }
+
+/* 预览代码块语法高亮：覆盖 hljs 外部主题的颜色 */
+html[data-theme-studio] .markdown-body pre code .hljs-keyword,
+html[data-theme-studio] .markdown-body pre code .hljs-selector-tag,
+html[data-theme-studio] .markdown-body pre code .hljs-literal,
+html[data-theme-studio] .markdown-body pre code .hljs-type { color: var(--ed-keyword); }
+html[data-theme-studio] .markdown-body pre code .hljs-string,
+html[data-theme-studio] .markdown-body pre code .hljs-regexp,
+html[data-theme-studio] .markdown-body pre code .hljs-addition { color: var(--ed-string); }
+html[data-theme-studio] .markdown-body pre code .hljs-number,
+html[data-theme-studio] .markdown-body pre code .hljs-symbol,
+html[data-theme-studio] .markdown-body pre code .hljs-bullet { color: var(--ed-number); }
+html[data-theme-studio] .markdown-body pre code .hljs-title,
+html[data-theme-studio] .markdown-body pre code .hljs-name,
+html[data-theme-studio] .markdown-body pre code .hljs-section { color: var(--ed-tag); }
+html[data-theme-studio] .markdown-body pre code .hljs-attr,
+html[data-theme-studio] .markdown-body pre code .hljs-attribute,
+html[data-theme-studio] .markdown-body pre code .hljs-property { color: var(--ed-attribute); }
+html[data-theme-studio] .markdown-body pre code .hljs-comment,
+html[data-theme-studio] .markdown-body pre code .hljs-quote { color: var(--ed-fg-muted); }
+html[data-theme-studio] .markdown-body pre code .hljs-link,
+html[data-theme-studio] .markdown-body pre code .hljs-built_in { color: var(--ed-link); }
+html[data-theme-studio] .markdown-body pre code .hljs-variable,
+html[data-theme-studio] .markdown-body pre code .hljs-params { color: var(--ed-type); }
+
+/* ==================================================================
+   Theme Studio 设置面板控件
+   ================================================================== */
+.ts-body { transition: opacity var(--dur); }
+.ts-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.ts-preset {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--border-radius-md);
+  padding: 7px;
+  background: var(--bg-panel);
+  text-align: left;
+  transition: border-color var(--dur), background var(--dur);
+}
+.ts-preset:hover { border-color: var(--accent); }
+.ts-preset.on { border-color: var(--accent); background: var(--accent-soft); }
+.ts-preset-swatch {
+  height: 42px;
+  border-radius: 5px;
+  border: 1px solid;
+  padding: 9px 8px;
+  margin-bottom: 6px;
+}
+.ts-preset-bar { display: flex; gap: 4px; }
+.ts-preset-bar span { height: 5px; border-radius: 3px; flex: 1; opacity: 0.85; }
+.ts-preset-bar span:first-child { flex: 2; }
+.ts-preset-name { font-size: 12px; color: var(--text); font-weight: 500; }
+.ts-preset-desc { font-size: 10.5px; color: var(--text-faint); margin-top: 1px; }
+.ts-slider-box { display: flex; align-items: center; gap: 10px; }
+.ts-slider { width: 180px; accent-color: var(--accent); cursor: pointer; }
+.ts-slider-val { min-width: 44px; text-align: right; font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }

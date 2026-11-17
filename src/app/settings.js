@@ -3,6 +3,7 @@ import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
 import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
 import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
+import { PRESETS, CANVASES, getPreset } from './theme-presets.js';
 
 const SCHEMES = [
   { id: 'ink', color: '#2f6feb' },
@@ -85,6 +86,30 @@ export function createSettings({ body, onApply }) {
       onChange(n);
     });
     return el;
+  }
+
+  function slider(value, { min, max, step = 0.01, format } = {}, onChange) {
+    const el = document.createElement('input');
+    el.type = 'range';
+    el.min = String(min);
+    el.max = String(max);
+    el.step = String(step);
+    el.value = String(value);
+    el.className = 'ts-slider';
+    const out = document.createElement('span');
+    out.className = 'ts-slider-val';
+    const sync = (v) => { out.textContent = format ? format(v) : String(v); };
+    sync(value);
+    el.addEventListener('input', () => {
+      const n = Number(el.value);
+      sync(n);
+      onChange(n);
+    });
+    const box = document.createElement('div');
+    box.className = 'ts-slider-box';
+    box.appendChild(el);
+    box.appendChild(out);
+    return box;
   }
 
   function fontSelect(current, onChange) {
@@ -337,6 +362,156 @@ export function createSettings({ body, onApply }) {
 
     renderSavedList();
     renderPreview(null);
+    return wrap;
+  }
+
+  /* ---------------------------------------------------------- Theme Studio */
+  function buildThemeStudioSection() {
+    const wrap = document.createElement('div');
+    const theme = prefs.theme;
+    const update = () => apply('theme', prefs.theme);
+
+    // 启用开关
+    const enableRow = document.createElement('div');
+    enableRow.className = 'set-row';
+    enableRow.innerHTML = '<div class="set-left"><div class="set-label">启用主题工作台</div>' +
+      '<div class="set-desc">接管编辑区与预览的配色、背景和排版；关闭则恢复默认外观</div></div>';
+    const enableCtrl = document.createElement('div');
+    enableCtrl.className = 'set-control';
+    const enableSwitch = toggle(theme.enabled, (v) => {
+      theme.enabled = v;
+      update();
+      syncEnabled();
+    });
+    enableCtrl.appendChild(enableSwitch);
+    enableRow.appendChild(enableCtrl);
+    wrap.appendChild(enableRow);
+
+    // 受开关控制的部分
+    const body = document.createElement('div');
+    body.className = 'ts-body';
+    wrap.appendChild(body);
+    const syncEnabled = () => {
+      body.style.opacity = theme.enabled ? '1' : '0.45';
+      body.style.pointerEvents = theme.enabled ? '' : 'none';
+    };
+
+    // 1) 主题预设色卡
+    const presetLabel = document.createElement('div');
+    presetLabel.className = 'set-desc';
+    presetLabel.textContent = '主题预设';
+    body.appendChild(presetLabel);
+    const presetGrid = document.createElement('div');
+    presetGrid.className = 'ts-presets';
+    let activeCard = null;
+    PRESETS.forEach((p) => {
+      const card = document.createElement('button');
+      card.className = 'ts-preset' + (theme.preset === p.id ? ' on' : '');
+      card.dataset.preset = p.id;
+      if (theme.preset === p.id) activeCard = card;
+      const sw = document.createElement('div');
+      sw.className = 'ts-preset-swatch';
+      sw.style.background = p.tokens['--ed-bg'];
+      sw.style.borderColor = p.tokens['--ed-border'];
+      const bar = document.createElement('div');
+      bar.className = 'ts-preset-bar';
+      const t1 = document.createElement('span');
+      t1.style.background = p.tokens['--ed-fg'];
+      const t2 = document.createElement('span');
+      t2.style.background = p.tokens['--ed-accent'];
+      const t3 = document.createElement('span');
+      t3.style.background = p.tokens['--ed-string'];
+      bar.appendChild(t1); bar.appendChild(t2); bar.appendChild(t3);
+      sw.appendChild(bar);
+      const name = document.createElement('div');
+      name.className = 'ts-preset-name';
+      name.textContent = p.name;
+      const desc = document.createElement('div');
+      desc.className = 'ts-preset-desc';
+      desc.textContent = p.desc;
+      card.appendChild(sw);
+      card.appendChild(name);
+      card.appendChild(desc);
+      card.addEventListener('click', () => {
+        if (activeCard) activeCard.classList.remove('on');
+        card.classList.add('on');
+        activeCard = card;
+        theme.preset = p.id;
+        update();
+      });
+      presetGrid.appendChild(card);
+    });
+    body.appendChild(presetGrid);
+
+    // 2) 背景画布
+    const canvasRow = document.createElement('div');
+    canvasRow.className = 'set-row';
+    const canvasLeft = document.createElement('div');
+    canvasLeft.innerHTML = '<div class="set-label">背景画布</div><div class="set-desc">叠加在编辑区的纹理</div>';
+    const canvasCtrl = document.createElement('div');
+    canvasCtrl.className = 'set-control';
+    const canvasSeg = segmented(
+      CANVASES.map((c) => ({ label: c.name, value: c.id })),
+      theme.canvas,
+      (v) => { theme.canvas = v; update(); },
+      { small: true }
+    );
+    canvasCtrl.appendChild(canvasSeg);
+    canvasRow.appendChild(canvasLeft);
+    canvasRow.appendChild(canvasCtrl);
+    body.appendChild(canvasRow);
+
+    // 纹理强度滑块
+    const strengthRow = document.createElement('div');
+    strengthRow.className = 'set-row';
+    strengthRow.innerHTML = '<div class="set-label">纹理强度</div>';
+    const strengthCtrl = document.createElement('div');
+    strengthCtrl.className = 'set-control';
+    strengthCtrl.appendChild(slider(theme.canvasStrength, {
+      min: 0, max: 1, step: 0.05, format: (v) => Math.round(v * 100) + '%',
+    }, (v) => { theme.canvasStrength = v; update(); }));
+    strengthRow.appendChild(strengthCtrl);
+    body.appendChild(strengthRow);
+
+    // 3) 排版微调
+    const typoLabel = document.createElement('div');
+    typoLabel.className = 'set-desc';
+    typoLabel.style.marginTop = '10px';
+    typoLabel.textContent = '排版微调';
+    body.appendChild(typoLabel);
+
+    const t = theme.typography;
+    const mkTypoRow = (label, control) => {
+      const r = document.createElement('div');
+      r.className = 'set-row';
+      const l = document.createElement('div');
+      l.className = 'set-label';
+      l.textContent = label;
+      const c = document.createElement('div');
+      c.className = 'set-control';
+      c.appendChild(control);
+      r.appendChild(l); r.appendChild(c);
+      body.appendChild(r);
+    };
+    mkTypoRow('行高', slider(t.lineHeight, { min: 1.3, max: 2.1, step: 0.02, format: (v) => v.toFixed(2) },
+      (v) => { t.lineHeight = v; update(); }));
+    mkTypoRow('字距', slider(t.letterSpacing, { min: -1, max: 3, step: 0.1, format: (v) => v.toFixed(1) + 'px' },
+      (v) => { t.letterSpacing = v; update(); }));
+    mkTypoRow('正文宽度', slider(t.maxWidth, { min: 0, max: 1200, step: 20, format: (v) => (v ? v + 'px' : '不限') },
+      (v) => { t.maxWidth = v; update(); }));
+    mkTypoRow('光标宽度', slider(t.cursorWidth, { min: 1, max: 4, step: 1, format: (v) => v + 'px' },
+      (v) => { t.cursorWidth = v; update(); }));
+
+    const activeLineRow = document.createElement('div');
+    activeLineRow.className = 'set-row';
+    activeLineRow.innerHTML = '<div class="set-label">当前行高亮</div>';
+    const activeLineCtrl = document.createElement('div');
+    activeLineCtrl.className = 'set-control';
+    activeLineCtrl.appendChild(toggle(t.activeLine, (v) => { t.activeLine = v; update(); }));
+    activeLineRow.appendChild(activeLineCtrl);
+    body.appendChild(activeLineRow);
+
+    syncEnabled();
     return wrap;
   }
 
@@ -615,6 +790,11 @@ export function createSettings({ body, onApply }) {
       )
     );
     body.appendChild(g1);
+
+    /* ---------------------------------------------------------- Theme Studio */
+    const gStudio = group('主题工作台');
+    gStudio.appendChild(buildThemeStudioSection());
+    body.appendChild(gStudio);
 
     /* ---------------------------------------------------------- 自定义配色 */
     const gColor = group('自定义配色');
