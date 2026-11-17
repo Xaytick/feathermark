@@ -8,20 +8,20 @@
 import * as ipc from './ipc.js';
 import { prefs, savePrefs } from './store.js';
 import { showMenu, toast, promptDialog } from './ui.js';
+import { EDIT_TEMPLATES } from './edit-templates.js';
+import { createAgentEdit } from './agent-edit.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const SKILL_KEY = 'feathermark.agent.skills.v1';
 const MAX_TEXT_ATTACH = 4000;
 const MAX_CONTEXT = 6000;
 
+// 聊天用问题模板。会修改文档的编辑能力统一放在 EDIT_TEMPLATES，避免重复入口。
 const TEMPLATES = [
-  { label: '润色当前选区', prompt: '请润色当前选中的 Markdown 内容：保持原意和结构，只让表达更通顺自然。' },
   { label: '解释这段代码', prompt: '请解释当前代码块的作用、关键步骤和注意事项。如果有多段代码，优先解释光标附近的代码。' },
-  { label: '整理排版', prompt: '请只整理当前文档的 Markdown 排版，不改动任何文字内容：统一标题层级、列表符号、段落空行和表格格式。' },
   { label: '生成大纲', prompt: '请基于当前文档生成一份简洁的大纲，并标出各章节之间的关系。' },
   { label: '找问题', prompt: '请检查当前文档，指出错别字、语病、逻辑跳跃、事实存疑和结构问题，按严重程度排序。' },
   { label: '续写下一节', prompt: '请根据当前文档的风格和结构，续写下一节内容，不要重复已有结论。' },
-  { label: '转成英文', prompt: '请把当前内容翻译成地道英文技术写作风格，保留 Markdown 结构、链接、代码和术语原样。' },
 ];
 
 const BUILTIN_SKILLS = [
@@ -84,7 +84,7 @@ const shortTime = (ts) => {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export function createChat({ getContext, getWorkspace, insertText, openSettings, onLayoutChange }) {
+export function createChat({ editor, getContext, getWorkspace, insertText, openSettings, onLayoutChange }) {
   const $ = (id) => document.getElementById(id);
   const panel = $('chat-panel');
   const splitter = $('splitter-chat');
@@ -97,6 +97,9 @@ export function createChat({ getContext, getWorkspace, insertText, openSettings,
   const skillChip = $('chat-skill-chip');
   const sendBtn = $('chat-send');
   const hintEl = $('chat-hint');
+
+  // Agent 编辑模板流程由 Agent 模块统一持有；状态栏、快捷键、菜单都通过本模块调用。
+  const agentEdit = createAgentEdit({ editor, onNeedConfig: openSettings });
 
   let allSessions = load(SESSION_KEY, []);
   let activeId = null;
@@ -509,6 +512,17 @@ export function createChat({ getContext, getWorkspace, insertText, openSettings,
     updateSendState();
   }
 
+  function showEditTemplates(anchor) {
+    showMenu(anchor, [
+      ...EDIT_TEMPLATES.map((t) => ({
+        label: `${t.label} · ${t.hint}`,
+        onClick: () => agentEdit.open(t.id, { source: 'agent' }),
+      })),
+      { sep: true },
+      { title: '选择模板后可配置范围与参数，执行前仍可先看逐块差异' },
+    ]);
+  }
+
   function showTemplates(anchor) {
     showMenu(anchor, [
       ...TEMPLATES.map((t) => ({
@@ -593,6 +607,7 @@ export function createChat({ getContext, getWorkspace, insertText, openSettings,
   $('chat-new').addEventListener('click', () => newSession());
   $('chat-close').addEventListener('click', () => setOpen(false));
   $('chat-templates').addEventListener('click', (e) => showTemplates(e.currentTarget));
+  $('chat-edit').addEventListener('click', (e) => showEditTemplates(e.currentTarget));
   $('chat-skills').addEventListener('click', (e) => showSkills(e.currentTarget));
   $('chat-attach').addEventListener('click', () => pickAttachments());
   $('chat-sessions-toggle').addEventListener('click', (e) => {
@@ -614,6 +629,11 @@ export function createChat({ getContext, getWorkspace, insertText, openSettings,
   sendBtn.addEventListener('click', () => send());
 
   emptyEl.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('[data-edit-template]');
+    if (editBtn) {
+      agentEdit.open(editBtn.dataset.editTemplate, { source: 'agent' });
+      return;
+    }
     const btn = e.target.closest('[data-template]');
     if (!btn) return;
     const t = TEMPLATES.find((x) => x.label === btn.textContent);
@@ -662,6 +682,12 @@ export function createChat({ getContext, getWorkspace, insertText, openSettings,
     addPaths,
     attachFiles: pickAttachments,
     fillPrompt,
+    openEditor: (id = null, opts = {}) =>
+      agentEdit.open(id, {
+        source: opts.source || 'agent',
+        initialInstruction: opts.initialInstruction || '',
+      }),
+    isEditOpen: () => agentEdit.isOpen(),
     getWorkspace,
     contextRect: () => panel.getBoundingClientRect(),
   };

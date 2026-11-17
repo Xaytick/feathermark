@@ -136,7 +136,8 @@
           </div>
           <div class="chat-head-actions">
             <button class="mini-btn" id="chat-new" title="新建会话"><svg viewBox="0 0 24 24"><use href="#i-plus" /></svg></button>
-            <button class="mini-btn" id="chat-templates" title="问题模板">模板</button>
+            <button class="mini-btn" id="chat-templates" title="聊天问题模板">模板</button>
+            <button class="mini-btn" id="chat-edit" title="编辑模板">编辑</button>
             <button class="mini-btn" id="chat-skills" title="Skills">技能</button>
             <button class="mini-btn" id="chat-close" title="收起 (⌘L)"><svg viewBox="0 0 24 24"><use href="#i-close" /></svg></button>
           </div>
@@ -154,9 +155,9 @@
             <div class="chat-empty-title">和 Agent 一起编辑</div>
             <div class="chat-empty-sub">问问题、粘贴选区，或拖入文件与图片。回复可一键写回编辑器。</div>
             <div class="chat-empty-actions">
-              <button class="btn ghost" data-template="polish">润色当前选区</button>
+              <button class="btn ghost" data-edit-template="polish">润色当前选区</button>
               <button class="btn ghost" data-template="explain">解释这段代码</button>
-              <button class="btn ghost" data-template="layout">整理排版</button>
+              <button class="btn ghost" data-edit-template="layout">整理排版</button>
             </div>
           </div>
         </div>
@@ -188,7 +189,7 @@
         <span id="sb-words" class="sb-item">0 字</span>
         <span id="sb-cursor" class="sb-item">行 1, 列 1</span>
         <button class="sb-btn" id="sb-chat" title="Agent 对话 (⌘L)">Agent</button>
-        <button class="sb-btn ai-btn" id="sb-ai" title="AI 编辑 (⌘J)">AI 编辑</button>
+        <button class="sb-btn ai-btn" id="sb-ai" title="Agent 编辑模板 (⌘J)">AI 编辑</button>
         <button class="sb-btn" id="sb-wrap" title="自动换行">换行</button>
         <button class="sb-btn" id="sb-split-dir" title="切换分屏方向">左右</button>
         <button class="sb-btn" id="sb-sidebar" title="侧边栏">侧栏</button>
@@ -237,18 +238,17 @@
       <header class="ai-head">
         <div class="ai-title">
           <svg viewBox="0 0 24 24" class="ai-spark"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z" /><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" /></svg>
-          AI 编辑
+          Agent 编辑
         </div>
         <span id="ai-scope" class="ai-scope"></span>
         <button class="mini-btn" id="ai-close" title="关闭 (Esc)">✕</button>
       </header>
 
+      <div class="ai-source" id="ai-source"></div>
+
       <div class="ai-chips" id="ai-chips"></div>
 
-      <div class="ai-input-row">
-        <input id="ai-instruction" type="text" spellcheck="false"
-               placeholder="补充要求（可选）：例如「保持学术语气」「术语不要翻译」" />
-      </div>
+      <div class="ai-params" id="ai-params"></div>
 
       <div class="ai-body">
         <div class="ai-hint" id="ai-hint">

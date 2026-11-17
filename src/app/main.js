@@ -12,7 +12,6 @@ import { createTree } from './tree.js';
 import { createSearch } from './search.js';
 import { createQuickOpen } from './quickopen.js';
 import { createSettings } from './settings.js';
-import { createAi } from './ai.js';
 import { createChat } from './chat.js';
 import * as exporters from './exporters.js';
 import * as ui from './ui.js';
@@ -37,7 +36,6 @@ let tree = null;
 let search = null;
 let quickopen = null;
 let settings = null;
-let ai = null;
 let chat = null;
 
 const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
@@ -540,7 +538,7 @@ function openMoreMenu() {
     { label: '新建', hint: '⌘N', onClick: () => newFile() },
     { label: '打开文件…', hint: '⌘O', onClick: () => pickAndOpen() },
     { label: '打开文件夹…', onClick: () => pickFolderAndOpen() },
-    { label: 'AI 编辑…', hint: '⌘J', onClick: () => ai && ai.open() },
+    { label: 'Agent 编辑模板…', hint: '⌘J', onClick: () => chat && chat.openEditor(null, { source: 'shortcut' }) },
     { sep: true },
     { label: '保存', hint: '⌘S', onClick: () => saveTab() },
     { label: '另存为…', hint: '⇧⌘S', onClick: () => saveTab(activeTab(), { as: true }) },
@@ -701,7 +699,7 @@ function setupShortcuts() {
           return;
         case 'j':
           e.preventDefault();
-          if (ai) ai.open();
+          if (chat) chat.openEditor(null, { source: 'shortcut' });
           return;
         case 'l':
           e.preventDefault();
@@ -873,9 +871,8 @@ async function boot() {
   // 设置
   settings = createSettings({ body: $('settings-body'), onApply: onPrefChange });
 
-  ai = createAi({ editor, onNeedConfig: () => openSettings() });
-
   chat = createChat({
+    editor,
     getContext: () => {
       const tab = activeTab();
       if (!tab) return null;
@@ -945,7 +942,7 @@ async function boot() {
     });
   });
 
-  $('sb-ai').addEventListener('click', () => ai.open());
+  $('sb-ai').addEventListener('click', () => chat.openEditor(null, { source: 'shortcut' }));
   $('sb-wrap').addEventListener('click', () => {
     prefs.lineWrap = !prefs.lineWrap;
     savePrefs();
