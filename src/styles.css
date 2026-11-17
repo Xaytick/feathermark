@@ -1632,3 +1632,23 @@ html[data-mode='dark'] {
   cursor: pointer;
 }
 .apply-confirm input { accent-color: var(--accent); }
+
+.chat-msg-body pre { position: relative; }
+.chat-msg-body .code-lang { right: 54px; }
+.code-copy {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 2;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: var(--text-faint);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity var(--dur);
+}
+.chat-msg-body pre:hover .code-copy, .code-copy:focus { opacity: 1; }
+.code-copy:hover { color: var(--text); border-color: var(--accent); }

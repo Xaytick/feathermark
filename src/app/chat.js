@@ -12,6 +12,7 @@ import { showMenu, toast, promptDialog } from './ui.js';
 import { EDIT_TEMPLATES } from './edit-templates.js';
 import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
+import { parseEdits, applyEdits } from './agent.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const SKILL_KEY = 'feathermark.agent.skills.v1';
@@ -108,8 +109,6 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const applyMetaEl = $('apply-meta');
   const btnApplyAccept = $('apply-accept');
   const btnApplyAll = $('apply-all');
-  const applySourceEl = $('apply-source');
-  const applyTargetEl = $('apply-target');
   const applyWarningEl = $('apply-warning');
 
   // Agent 编辑模板流程由 Agent 模块统一持有；状态栏、快捷键、菜单都通过本模块调用。
@@ -125,7 +124,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let applyView = null;
   let applyScope = null;
   let applyMsg = null;
-  let applyParsed = null;
+  let applyErrors = [];
   let streamRequestId = null;
   let lastLimitToast = 0;
 
@@ -248,44 +247,30 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
     }
   }
 
-/** 解析回复里的围栏代码块，支持多个块、未闭合块与 ~~~ 围栏。 */
-function parseReplyBlocks(raw) {
-  const text = String(raw || '').replace(/\r\n/g, '\n');
-  const lines = text.split('\n');
-  const blocks = [];
-  let i = 0;
-  while (i < lines.length) {
-    const open = /^(`{3,}|~{3,})\s*([^`~\n]*)$/.exec(lines[i]);
-    if (!open) { i++; continue; }
-    const fence = open[1];
-    const ch = fence[0];
-    const len = fence.length;
-    const lang = (open[2] || '').trim().split(/\s+/)[0] || '';
-    const content = [];
-    let closed = false;
-    i++;
-    while (i < lines.length) {
-      const close = /^(`{3,}|~{3,})\s*$/.exec(lines[i]);
-      if (close && close[1][0] === ch && close[1].length >= len) {
-        closed = true;
-        i++;
-        break;
-      }
-      content.push(lines[i]);
-      i++;
-    }
-    blocks.push({ lang, text: content.join('\n'), closed });
-  }
-  return { text, blocks };
+function numberedLines(lines, startNo) {
+  return lines.map((l, i) => `${startNo + i}|${l}`).join('\n');
 }
 
-/** 让应用内容与目标范围的结尾换行一致，避免多出/少掉一个空行。 */
-function normalizeProposal(proposal, targetText) {
-  let out = String(proposal || '');
-  if (targetText.endsWith('\n') && !out.endsWith('\n')) out += '\n';
-  if (!targetText.endsWith('\n')) out = out.replace(/\n$/, '');
-  return out;
-}
+  function addCodeCopyButtons(container) {
+    container.querySelectorAll('pre').forEach((pre) => {
+      if (pre.querySelector('.code-copy')) return;
+      const btn = document.createElement('button');
+      btn.className = 'code-copy';
+      btn.type = 'button';
+      btn.textContent = '复制';
+      btn.addEventListener('click', async () => {
+        const code = pre.querySelector('code');
+        const text = code ? code.textContent : pre.textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          toast('已复制代码');
+        } catch (_) {
+          toast('复制失败', { error: true });
+        }
+      });
+      pre.appendChild(btn);
+    });
+  }
 
   function messageNode(msg) {
     const wrap = document.createElement('div');
@@ -325,6 +310,7 @@ function normalizeProposal(proposal, targetText) {
       } else {
         body.textContent = msg.content;
       }
+      if (msg.role === 'assistant') addCodeCopyButtons(body);
     } else if (msg.status === 'sending') {
       body.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span> 正在思考…';
     }
@@ -359,10 +345,13 @@ function normalizeProposal(proposal, targetText) {
     if (msg.role === 'assistant' && !busy) {
       const actions = document.createElement('div');
       actions.className = 'chat-msg-actions';
-      const diffBtn = document.createElement('button');
-      diffBtn.textContent = '查看差异';
-      diffBtn.title = '先在差异中确认，再同意修改文档';
-      diffBtn.addEventListener('click', () => openApply(msg));
+      if (msg.patch && msg.patch.length) {
+        const diffBtn = document.createElement('button');
+        diffBtn.textContent = '查看差异';
+        diffBtn.title = '比较文档修改前后的差异，再决定是否应用';
+        diffBtn.addEventListener('click', () => openApply(msg));
+        actions.appendChild(diffBtn);
+      }
       const copy = document.createElement('button');
       copy.textContent = '复制';
       copy.addEventListener('click', async () => {
@@ -373,7 +362,7 @@ function normalizeProposal(proposal, targetText) {
           toast('复制失败', { error: true });
         }
       });
-      actions.append(diffBtn, copy);
+      actions.appendChild(copy);
       wrap.appendChild(actions);
     }
 
@@ -401,84 +390,33 @@ function normalizeProposal(proposal, targetText) {
     return wrap;
   }
 
-  function captureReplaceScope(target) {
-    const cm = editor.cm;
-    const docText = cm.getValue();
-    const docLines = docText.split('\n');
-    const hasSel = target !== 'doc' && cm.somethingSelected();
-    let fromLine = 1;
-    let toLine = docLines.length;
-    if (hasSel) {
-      const a = cm.getCursor('from');
-      const b = cm.getCursor('to');
-      fromLine = Math.min(a.line, b.line) + 1;
-      toLine = Math.max(a.line, b.line) + 1;
-    }
-    const baseLines = docLines.slice(fromLine - 1, toLine);
-    return {
-      text: baseLines.join('\n'),
-      snapshot: docText,
-      from: { line: fromLine - 1, ch: 0 },
-      to: { line: toLine - 1, ch: (docLines[toLine - 1] || '').length },
-      lines: toLine - fromLine + 1,
-      isSelection: hasSel,
-    };
-  }
-
   function updateApplyState() {
     if (!applyView) return;
     const total = applyView.changeCount;
     const accepted = applyView.acceptedCount();
     const partial = total > 0 && accepted < total;
     btnApplyAccept.textContent = total ? `同意修改（${accepted}/${total} 处）` : '没有可应用的改动';
-    const needsConfirm = !applyWarningEl.classList.contains('hidden');
+    const needsConfirm = !applyWarningEl.classList.contains('hidden') && !!document.getElementById('apply-confirm');
     const confirmed = !needsConfirm || !!document.getElementById('apply-confirm')?.checked;
-    btnApplyAccept.disabled = accepted === 0 || !confirmed;
-    btnApplyAll.classList.toggle('hidden', !partial);
+    btnApplyAccept.disabled = accepted === 0 || !confirmed || applyErrors.length > 0;
+    btnApplyAll.classList.toggle('hidden', !partial || applyErrors.length > 0);
     applyMetaEl.textContent = total ? `${accepted}/${total} 处改动已选` : '模型没有给出改动';
   }
 
-  function proposalForSource(index) {
-    if (!applyParsed || !applyParsed.blocks.length || index === 'whole') {
-      return { text: applyParsed ? applyParsed.text.trim() : '', closed: true, label: '整条回复' };
-    }
-    const b = applyParsed.blocks[Number(index)] || applyParsed.blocks[applyParsed.blocks.length - 1];
-    return { text: b.text, closed: b.closed, label: b.lang || '代码块' };
-  }
-
-  function sourceLabel(b, idx) {
-    const lang = b.lang ? ` · ${b.lang}` : '';
-    const first = (b.text.split('\n').find((l) => l.trim()) || '').trim().slice(0, 18);
-    const snippet = first ? ` · ${first}${b.text.length > first.length ? '…' : ''}` : '';
-    if (!b.closed) return `代码块 ${idx + 1}${lang}${snippet}（未闭合，可能截断）`;
-    return `代码块 ${idx + 1}${lang}${snippet}`;
-  }
-
-  function rebuildApplyDiff() {
-    const src = proposalForSource(applySourceEl.value);
-    const target = applyTargetEl.value;
-    applyScope = captureReplaceScope(target);
-    const proposal = normalizeProposal(src.text, applyScope.text);
-
-    applyScopeEl.textContent = applyScope.isSelection
-      ? `选中 ${applyScope.lines} 行 · 用所选内容替换这几行`
-      : `整篇 ${applyScope.lines} 行 · 用所选内容替换全文`;
-
-    const warnings = [];
-    if (applyMsg && applyMsg.finishReason === 'length') warnings.push('模型输出达到长度上限（finish_reason=length）');
-    if (!src.closed) warnings.push('所选代码块没有闭合围栏，内容可能不完整');
-    if (!applyParsed || !applyParsed.blocks.length) warnings.push('未检测到代码块，当前使用整条回复作为修改内容');
-    if (applyScope.text.length > 200 && proposal.length < applyScope.text.length * 0.25) {
-      warnings.push('所选内容明显短于目标范围，可能只是片段而不是完整文档');
-    }
-
-    if (warnings.length) {
-      applyWarningEl.classList.remove('hidden');
+  function showApplyWarnings(warnings) {
+    if (!warnings.length) {
+      applyWarningEl.classList.add('hidden');
       applyWarningEl.innerHTML = '';
-      const title = document.createElement('div');
-      title.innerHTML = '<strong>内容可能不完整</strong>';
-      const detail = document.createElement('div');
-      detail.textContent = warnings.join('；') + '。请确认后再应用，或重新生成一次。';
+      return;
+    }
+    applyWarningEl.classList.remove('hidden');
+    applyWarningEl.innerHTML = '';
+    const title = document.createElement('div');
+    title.innerHTML = '<strong>请注意</strong>';
+    const detail = document.createElement('div');
+    detail.textContent = warnings.join('；') + '。';
+    applyWarningEl.append(title, detail);
+    if (warnings.some((w) => /截断|不完整|长度上限/.test(w))) {
       const confirm = document.createElement('label');
       confirm.className = 'apply-confirm';
       const box = document.createElement('input');
@@ -487,19 +425,8 @@ function normalizeProposal(proposal, targetText) {
       box.addEventListener('change', updateApplyState);
       confirm.appendChild(box);
       confirm.appendChild(document.createTextNode('我已确认内容完整，仍要继续'));
-      applyWarningEl.append(title, detail, confirm);
-    } else {
-      applyWarningEl.classList.add('hidden');
-      applyWarningEl.innerHTML = '';
+      applyWarningEl.appendChild(confirm);
     }
-
-    applyView = buildDiffView(applyScope.text, proposal);
-    if (applyView.onSelectionChange) applyView.onSelectionChange(updateApplyState);
-    applyDiffEl.className = 'ai-diff';
-    applyDiffEl.innerHTML = '';
-    applyDiffEl.appendChild(applyView.node);
-    applyMetaEl.classList.remove('error');
-    updateApplyState();
   }
 
   function openApply(msg) {
@@ -507,37 +434,36 @@ function normalizeProposal(proposal, targetText) {
       toast('回复中没有可应用的内容', { error: true });
       return;
     }
-    applyMsg = msg;
-    applyParsed = parseReplyBlocks(msg.content);
-
-    applySourceEl.innerHTML = '';
-    if (!applyParsed.blocks.length) {
-      const o = document.createElement('option');
-      o.value = 'whole';
-      o.textContent = '整条回复（未检测到代码块）';
-      applySourceEl.appendChild(o);
-    } else {
-      applyParsed.blocks.forEach((b, idx) => {
-        const o = document.createElement('option');
-        o.value = String(idx);
-        o.textContent = sourceLabel(b, idx);
-        applySourceEl.appendChild(o);
-      });
-      const whole = document.createElement('option');
-      whole.value = 'whole';
-      whole.textContent = '整条回复';
-      applySourceEl.appendChild(whole);
-      const preferred = applyParsed.blocks.findIndex((b) => /^(md|markdown)$/i.test(b.lang));
-      applySourceEl.value = preferred >= 0 ? String(preferred) : '0';
+    const parsed = msg.patch && msg.patch.length ? { edits: msg.patch } : parseEdits(msg.content);
+    if (!parsed.edits.length) {
+      toast('这条回复不是编辑指令，没有可应用的修改', { error: true });
+      return;
     }
 
-    const hasSel = editor.cm.somethingSelected();
-    applyTargetEl.value = hasSel ? 'selection' : 'doc';
-    Array.from(applyTargetEl.options).forEach((o) => {
-      if (o.value === 'selection') o.disabled = !hasSel;
-    });
+    const docText = editor.cm.getValue();
+    const docLines = docText.split('\n');
+    const applied = applyEdits(docLines, parsed.edits, 1);
+    applyErrors = applied.errors || [];
+    applyMsg = msg;
+    applyScope = {
+      snapshot: docText,
+      from: { line: 0, ch: 0 },
+      to: { line: docLines.length - 1, ch: (docLines[docLines.length - 1] || '').length },
+    };
+    applyScopeEl.textContent = `整篇 ${docLines.length} 行 · 修改前 / 修改后`;
 
-    rebuildApplyDiff();
+    const warnings = [];
+    if (applyMsg.finishReason === 'length') warnings.push('模型输出达到长度上限，补丁可能不完整');
+    if (applyErrors.length) warnings.push(`补丁有 ${applyErrors.length} 处指令无效：${applyErrors[0]}`);
+    showApplyWarnings(warnings);
+
+    applyView = buildDiffView(docText, applied.lines.join('\n'));
+    if (applyView.onSelectionChange) applyView.onSelectionChange(updateApplyState);
+    applyDiffEl.className = 'ai-diff';
+    applyDiffEl.innerHTML = '';
+    applyDiffEl.appendChild(applyView.node);
+    applyMetaEl.classList.remove('error');
+    updateApplyState();
     applyDialog.classList.remove('hidden');
   }
 
@@ -546,11 +472,16 @@ function normalizeProposal(proposal, targetText) {
     applyView = null;
     applyScope = null;
     applyMsg = null;
-    applyParsed = null;
+    applyErrors = [];
   }
 
   function acceptApply(mode) {
     if (!applyView || !applyScope) return;
+    if (applyErrors.length) {
+      applyMetaEl.textContent = '补丁中有无效指令，请先重新生成';
+      applyMetaEl.classList.add('error');
+      return;
+    }
     if (editor.cm.getValue() !== applyScope.snapshot) {
       applyMetaEl.textContent = '文档在查看差异期间被改动，请关闭后重新查看差异';
       applyMetaEl.classList.add('error');
@@ -677,15 +608,23 @@ function normalizeProposal(proposal, targetText) {
     const ctx = includeContext ? getContext() : null;
     const parts = [];
     if (ctx) {
-      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}`);
-      const selected = ctx.selection && ctx.selection.trim();
-      if (selected) {
-        const clipped = selected.length > MAX_CONTEXT;
-        parts.push(`当前选中内容（${selected.length} 字${clipped ? `，截断至 ${MAX_CONTEXT} 字` : ''}）：\n${selected.slice(0, MAX_CONTEXT)}`);
-      } else if (ctx.doc) {
-        const clipped = ctx.doc.length > MAX_CONTEXT;
-        parts.push(`当前文档内容${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${ctx.doc.slice(0, MAX_CONTEXT)}`);
+      const cm = editor.cm;
+      const docLines = String(ctx.doc || cm.getValue()).split('\n');
+      const hasSel = cm.somethingSelected();
+      const a = cm.getCursor('from');
+      const b = cm.getCursor('to');
+      const fromLine = hasSel ? Math.min(a.line, b.line) + 1 : 1;
+      const toLine = hasSel ? Math.max(a.line, b.line) + 1 : docLines.length;
+      const rangeLines = docLines.slice(fromLine - 1, toLine);
+      let numbered = numberedLines(rangeLines, fromLine);
+      let clipped = false;
+      if (numbered.length > MAX_CONTEXT) {
+        numbered = numbered.slice(0, MAX_CONTEXT);
+        clipped = true;
       }
+      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行。`);
+      parts.push(hasSel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
+      parts.push(`带行号的原文${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${numbered}`);
     }
     // 附件与文档上下文是两件事：关掉文档上下文时仍然要发送附件
     if (attList.length) {
@@ -745,7 +684,10 @@ function normalizeProposal(proposal, targetText) {
       const skill = BUILTIN_SKILLS.find((k) => k.id === activeSkill && skills[k.id]);
       const system = [
         '你是 FeatherMark 编辑器内的 Markdown 协作 Agent。回答要简洁、具体、可执行。',
-        '默认使用简体中文；用户用英文提问时用英文回答。需要给出正文时直接给可粘贴的 Markdown，不要加无意义的说明。',
+        '默认使用简体中文；用户用英文提问时用英文回答。',
+        '当用户要求修改文档/选区时，只输出编辑指令，不要输出解释或整篇文档：',
+        'REPLACE 起-止\n新内容（可多行）\nDELETE 起-止\nINSERT N\n新内容（可多行）\nEND',
+        '行号必须取自带行号的原文；只输出改动行，没改的行不要重复。只是问问题时正常回答，不要输出编辑指令。',
         skill ? `\n当前启用的技能：${skill.name}\n${skill.prompt}` : '',
       ]
         .filter(Boolean)
@@ -794,6 +736,8 @@ function normalizeProposal(proposal, targetText) {
       }
 
       assistantMsg.content = String(res.content || assistantMsg.content || '').trim();
+      const detected = parseEdits(assistantMsg.content);
+      if (detected.edits.length) assistantMsg.patch = detected.edits;
       assistantMsg.status = res.cancelled || res.finish_reason === 'cancelled' ? 'stopped' : 'sent';
       assistantMsg.model = res.model;
       assistantMsg.latency = res.latency_ms;
@@ -945,8 +889,6 @@ function normalizeProposal(proposal, targetText) {
   $('chat-attach').addEventListener('click', () => pickAttachments());
   $('apply-close').addEventListener('click', closeApply);
   $('apply-cancel').addEventListener('click', closeApply);
-  applySourceEl.addEventListener('change', rebuildApplyDiff);
-  applyTargetEl.addEventListener('change', rebuildApplyDiff);
   $('apply-accept').addEventListener('click', () => acceptApply('accepted'));
   $('apply-all').addEventListener('click', () => acceptApply('all'));
   applyDialog.addEventListener('pointerdown', (e) => {
