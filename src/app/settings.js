@@ -14,21 +14,6 @@ export function createSettings({ body, onApply }) {
   let fonts = null; // 系统字体列表，首次打开时才枚举（要解析上百个字体文件头）
   let aiCfg = null;
 
-  // 不预填服务商预设：模型与端点迭代太快，硬编码的表格只会过时。
-  // 地址和模型留空，由用户按所用服务的官方文档自己填；下面两项是通用能力，保留。
-  const AI_PRESETS = [
-    {
-      id: 'custom',
-      name: '自定义（OpenAI 兼容）',
-      base: '',
-      model: '',
-      extra: '{}',
-      skipTemperature: false,
-      doc: '',
-      note: '任何兼容 /chat/completions 的服务都可以，地址和模型名自己填。',
-    },
-  ];
-
   const apply = (key, value, immediate = true) => {
     prefs[key] = value;
     savePrefs();
@@ -133,14 +118,6 @@ export function createSettings({ body, onApply }) {
   function buildAiSection() {
     const wrap = document.createElement('div');
 
-    const presetSel = document.createElement('select');
-    for (const p of AI_PRESETS) {
-      const o = document.createElement('option');
-      o.value = p.id;
-      o.textContent = p.name;
-      presetSel.appendChild(o);
-    }
-
     const baseInput = document.createElement('input');
     baseInput.type = 'text';
     baseInput.placeholder = 'https://你的服务商/v1';
@@ -195,7 +172,6 @@ export function createSettings({ body, onApply }) {
       return r;
     };
 
-    wrap.appendChild(row('服务商', '选预设会自动填好接口地址与常用模型', wrapSelect(presetSel)));
     wrap.appendChild(wideRow('接口地址', 'OpenAI 兼容地址，通常以 /v1 结尾', baseInput));
 
     // 已添加模型清单：点名称选用，点 × 删除
@@ -219,7 +195,7 @@ export function createSettings({ body, onApply }) {
     wrap.appendChild(wideRow('添加模型', '手填模型 ID 加入清单，或从接口拉取后选择', addRow));
     wrap.appendChild(wideRow('API Key', '只存在本机配置文件里，不写入浏览器存储', keyInput));
     wrap.appendChild(
-      wideRow('额外请求参数', 'JSON 对象；选预设会自动填好，一般不用改', extraInput)
+      wideRow('额外请求参数', 'JSON 对象，合并进请求体，一般不用改', extraInput)
     );
     wrap.appendChild(wideRow('不发送 temperature', '部分推理模型会拒绝这个字段', skipCheck));
     wrap.appendChild(result);
@@ -229,13 +205,6 @@ export function createSettings({ body, onApply }) {
     actions.style.cssText = 'display:flex;justify-content:flex-end;padding-top:8px';
     actions.appendChild(saveBtn);
     wrap.appendChild(actions);
-
-    function wrapSelect(sel) {
-      const holder = document.createElement('div');
-      holder.className = 'set-control wide';
-      holder.appendChild(sel);
-      return holder;
-    }
 
     function renderModelChips() {
       const list = getModels();
@@ -305,7 +274,6 @@ export function createSettings({ body, onApply }) {
     async function load() {
       try {
         aiCfg = await ipc.aiConfigGet();
-        presetSel.value = AI_PRESETS.some((p) => p.id === aiCfg.provider) ? aiCfg.provider : 'custom';
         baseInput.value = aiCfg.base_url || '';
         modelInput.value = aiCfg.model || '';
         keyInput.value = '';
@@ -320,20 +288,6 @@ export function createSettings({ body, onApply }) {
       }
     }
 
-    presetSel.addEventListener('change', () => {
-      const p = AI_PRESETS.find((x) => x.id === presetSel.value);
-      if (p) {
-        if (p.id !== 'custom') {
-          baseInput.value = p.base;
-          modelInput.value = p.model;
-        }
-        extraInput.value = p.extra || '{}';
-        skipCheck.checked = !!p.skipTemperature;
-        result.textContent = p.note || '';
-      }
-      baseInput.focus();
-    });
-
     fetchBtn.addEventListener('click', async () => {
       fetchBtn.disabled = true;
       result.style.color = 'var(--text-faint)';
@@ -341,7 +295,7 @@ export function createSettings({ body, onApply }) {
       try {
         // 先落盘当前地址与 Key，Rust 侧才有配置可读
         await ipc.aiConfigSet({
-          provider: presetSel.value,
+          provider: 'custom',
           baseUrl: baseInput.value,
           model: modelInput.value,
           apiKey: keyInput.value || null,
@@ -374,7 +328,7 @@ export function createSettings({ body, onApply }) {
       result.textContent = '正在保存并测试连接…';
       try {
         await ipc.aiConfigSet({
-          provider: presetSel.value,
+          provider: 'custom',
           baseUrl: baseInput.value,
           model: modelInput.value,
           apiKey: keyInput.value || null,
