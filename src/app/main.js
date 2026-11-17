@@ -942,7 +942,6 @@ async function boot() {
     });
   });
 
-  $('sb-ai').addEventListener('click', () => chat.openEditor(null, { source: 'shortcut' }));
   $('sb-wrap').addEventListener('click', () => {
     prefs.lineWrap = !prefs.lineWrap;
     savePrefs();
