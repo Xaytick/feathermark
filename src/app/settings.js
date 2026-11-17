@@ -1,7 +1,7 @@
 // 设置面板：从「声明式 schema」生成 DOM，改一项立即生效并落盘。
 import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
-import { getModels, addModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
+import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
 
 const SCHEMES = [
   { id: 'ink', color: '#2f6feb' },
@@ -146,12 +146,10 @@ export function createSettings({ body, onApply }) {
     baseInput.placeholder = 'https://你的服务商/v1';
     baseInput.spellcheck = false;
 
-    const modelSel = document.createElement('select');
-    modelSel.title = '已配置的模型';
-
     const modelInput = document.createElement('input');
     modelInput.type = 'text';
-    modelInput.placeholder = '模型 ID';
+    modelInput.id = 'ai-add-model-input';
+    modelInput.placeholder = '模型 ID，例如 deepseek-chat';
     modelInput.spellcheck = false;
     modelInput.setAttribute('list', 'ai-model-list');
     const modelList = document.createElement('datalist');
@@ -199,7 +197,26 @@ export function createSettings({ body, onApply }) {
 
     wrap.appendChild(row('服务商', '选预设会自动填好接口地址与常用模型', wrapSelect(presetSel)));
     wrap.appendChild(wideRow('接口地址', 'OpenAI 兼容地址，通常以 /v1 结尾', baseInput));
-    wrap.appendChild(wideRow('模型', '选择已配置模型，或手填后保存', modelSel, modelInput, fetchBtn, modelList));
+
+    // 已添加模型清单：点名称选用，点 × 删除
+    const chips = document.createElement('div');
+    chips.className = 'ai-model-chips';
+
+    // 添加模型：输入模型 ID 后点「添加」，或从接口拉取后填入
+    const addRow = document.createElement('div');
+    addRow.className = 'ai-model-add';
+    addRow.id = 'ai-add-model';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'mini-btn';
+    addBtn.type = 'button';
+    addBtn.textContent = '添加';
+    addBtn.title = '把模型 ID 加入清单';
+    addRow.appendChild(modelInput);
+    addRow.appendChild(addBtn);
+    addRow.appendChild(fetchBtn);
+
+    wrap.appendChild(wideRow('模型', '已添加的模型供 Agent 面板切换；点名称选用，点 × 删除', chips));
+    wrap.appendChild(wideRow('添加模型', '手填模型 ID 加入清单，或从接口拉取后选择', addRow));
     wrap.appendChild(wideRow('API Key', '只存在本机配置文件里，不写入浏览器存储', keyInput));
     wrap.appendChild(
       wideRow('额外请求参数', 'JSON 对象；选预设会自动填好，一般不用改', extraInput)
@@ -220,37 +237,70 @@ export function createSettings({ body, onApply }) {
       return holder;
     }
 
-    function refreshModelOptions() {
+    function renderModelChips() {
       const list = getModels();
       const current = modelInput.value.trim();
-      modelSel.innerHTML = '';
+      chips.innerHTML = '';
       if (!list.length) {
-        const o = document.createElement('option');
-        o.textContent = '未配置模型';
-        o.value = '';
-        modelSel.appendChild(o);
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-chips-empty';
+        empty.textContent = '还没有添加模型';
+        chips.appendChild(empty);
       }
       list.forEach((name) => {
-        const o = document.createElement('option');
-        o.value = name;
-        o.textContent = name;
-        modelSel.appendChild(o);
+        const chip = document.createElement('div');
+        chip.className = 'ai-model-chip' + (name === current ? ' on' : '');
+        const label = document.createElement('button');
+        label.type = 'button';
+        label.className = 'ai-model-chip-name';
+        label.textContent = name;
+        label.title = '设为当前模型';
+        label.addEventListener('click', () => {
+          modelInput.value = name;
+          result.textContent = '';
+          renderModelChips();
+        });
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'ai-model-chip-x';
+        x.textContent = '×';
+        x.title = '从清单移除';
+        x.addEventListener('click', () => removeModel(name));
+        chip.appendChild(label);
+        chip.appendChild(x);
+        chips.appendChild(chip);
       });
+      // 候选下拉与清单同步
       modelList.innerHTML = '';
       list.forEach((name) => {
         const o = document.createElement('option');
         o.value = name;
         modelList.appendChild(o);
       });
-      if (current && list.includes(current)) modelSel.value = current;
     }
 
-    modelSel.addEventListener('change', () => {
-      if (!modelSel.value) return;
-      modelInput.value = modelSel.value;
-      result.textContent = '';
+    onModelsChange(renderModelChips);
+    modelInput.addEventListener('input', renderModelChips);
+
+    function addCurrentModel() {
+      const name = modelInput.value.trim();
+      if (!name) {
+        result.style.color = 'var(--text-faint)';
+        result.textContent = '先输入模型 ID，再点添加。';
+        return;
+      }
+      const isNew = addModel(name);
+      renderModelChips();
+      result.style.color = 'var(--accent)';
+      result.textContent = isNew ? `已添加：${name}` : '该模型已在清单中。';
+    }
+    addBtn.addEventListener('click', addCurrentModel);
+    modelInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addCurrentModel();
+      }
     });
-    onModelsChange(refreshModelOptions);
 
     async function load() {
       try {
@@ -263,7 +313,7 @@ export function createSettings({ body, onApply }) {
         extraInput.value = aiCfg.extra_body || '{}';
         skipCheck.checked = !!aiCfg.skip_temperature;
         syncModelsFromConfig(aiCfg.model);
-        refreshModelOptions();
+        renderModelChips();
         status.textContent = '';
       } catch (e) {
         status.textContent = '读取 AI 配置失败：' + ipc.describeError(e);
@@ -308,7 +358,7 @@ export function createSettings({ body, onApply }) {
           modelList.appendChild(o);
         });
         result.style.color = 'var(--accent)';
-        result.textContent = `拉到 ${list.length} 个模型，点模型输入框可下拉选择。`;
+        result.textContent = `拉到 ${list.length} 个模型，输入框可下拉选择，点「添加」加入清单。`;
         if (!modelInput.value) modelInput.value = list[0];
       } catch (e) {
         result.style.color = '#e5484d';
@@ -484,9 +534,19 @@ export function createSettings({ body, onApply }) {
 
   return {
     render,
-    open() {
+    open(opts) {
       render();
       loadFontsOnce();
+      // 聊天输入框下拉选「添加模型…」时跳到这里，直接聚焦输入框
+      if (opts && opts.focus === 'ai-add-model') {
+        const input = body.querySelector('#ai-add-model-input');
+        const target = body.querySelector('#ai-add-model');
+        if (target) target.scrollIntoView({ block: 'center' });
+        if (input) {
+          input.focus();
+          if (input.select) input.select();
+        }
+      }
     },
     reset() {
       resetPrefs();

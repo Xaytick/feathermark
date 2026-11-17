@@ -12,7 +12,7 @@ import { showMenu, toast, promptDialog } from './ui.js';
 import { EDIT_TEMPLATES } from './edit-templates.js';
 import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
-import { getModels, addModel, onModelsChange } from './model-list.js';
+import { getModels, onModelsChange } from './model-list.js';
 import { parseEdits, applyEdits } from './agent.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
@@ -688,7 +688,7 @@ function numberedLines(lines, startNo) {
     });
     const add = document.createElement('option');
     add.value = '__add__';
-    add.textContent = '＋ 添加模型';
+    add.textContent = '添加模型…';
     modelSel.appendChild(add);
     modelSel.value = activeModel || (list[0] || '');
   }
@@ -944,12 +944,8 @@ function numberedLines(lines, startNo) {
   modelSel.addEventListener('change', async () => {
     if (modelSel.value === '__add__') {
       modelSel.value = activeModel || (getModels()[0] || '');
-      const name = await promptDialog({ title: '添加模型', value: '', placeholder: '模型 ID，例如 deepseek-chat' });
-      if (name && name.trim()) {
-        addModel(name.trim());
-        await applyModel(name.trim());
-        renderModels();
-      }
+      // 跳到设置里「添加模型」处，统一在设置中维护清单
+      openSettings({ focus: 'ai-add-model' });
       return;
     }
     await applyModel(modelSel.value);

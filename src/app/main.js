@@ -612,9 +612,9 @@ async function doExport(kind) {
 }
 
 /* ================================================================= 设置 */
-function openSettings() {
+function openSettings(opts) {
   $('settings').classList.remove('hidden');
-  settings.open();
+  settings.open(opts);
 }
 
 function onPrefChange(key, value) {
@@ -884,7 +884,7 @@ async function boot() {
       };
     },
     getWorkspace: () => state.workspace,
-    openSettings: () => openSettings(),
+    openSettings: (o) => openSettings(o),
   });
   chat.setRefresh(() => editor && editor.refresh());
   chat.init();
