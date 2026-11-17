@@ -5,6 +5,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import * as ipc from './ipc.js';
 import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
+import { getScheme, deriveAccent } from './color-schemes.js';
 import { createEditor } from './editor.js';
 import { createPreview, dirname } from './preview.js';
 import { createTabs } from './tabs.js';
@@ -49,12 +50,32 @@ function resolvedMode() {
   return prefs.themeMode;
 }
 
+// 自定义配色方案：以主色派生强调色套装，用 inline 变量覆盖 CSS 的 data-scheme 规则。
+// data-scheme 仍保留为方案 id（自定义 id 以 p 开头），切回内置方案时清除 inline 覆盖即可。
+function applySchemeColors(root) {
+  const style = root.style;
+  const scheme = getScheme(prefs.scheme);
+  if (!scheme || !scheme.colors || !scheme.colors.length) {
+    ['--accent', '--accent-hover', '--accent-soft'].forEach((k) => style.removeProperty(k));
+    return;
+  }
+  const accent = deriveAccent(scheme.colors[0].hex);
+  if (!accent) {
+    ['--accent', '--accent-hover', '--accent-soft'].forEach((k) => style.removeProperty(k));
+    return;
+  }
+  style.setProperty('--accent', accent.accent);
+  style.setProperty('--accent-hover', accent.hover);
+  style.setProperty('--accent-soft', accent.soft);
+}
+
 function applyTheme() {
   const mode = resolvedMode();
   const root = document.documentElement;
   const changed = root.dataset.mode !== mode;
   root.dataset.mode = mode;
   root.dataset.scheme = prefs.scheme;
+  applySchemeColors(root);
   $('hljs-light').disabled = mode === 'dark';
   $('hljs-dark').disabled = mode !== 'dark';
   $('btn-theme').innerHTML = `<svg viewBox="0 0 24 24"><use href="#${mode === 'dark' ? 'i-sun' : 'i-moon'}" /></svg>`;

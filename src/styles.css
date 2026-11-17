@@ -1316,6 +1316,68 @@ mark.add-hl { background: rgba(15, 138, 95, 0.28); color: inherit; border-radius
 .btn[disabled] { opacity: 0.45; cursor: default; }
 
 /* 设置里的 AI 配置行 */
+/* 设置：自定义配色方案管理 */
+.color-schemes { padding: 2px 0 4px; }
+.cs-hint { font-size: 11.5px; color: var(--text-faint); line-height: 1.5; margin-bottom: 8px; }
+.cs-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 66px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.cs-input:focus { border-color: var(--accent); }
+.cs-parse-btn { margin-top: 8px; }
+.cs-preview { margin-top: 10px; }
+.cs-preview-empty { font-size: 11.5px; color: var(--text-faint); padding: 6px 0; }
+.cs-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.cs-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 8px 0 6px;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg-panel);
+}
+.cs-chip-dot { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
+.cs-chip-label { font-family: var(--font-mono); font-size: 11px; color: var(--text); }
+.cs-errors {
+  margin-top: 8px; padding: 7px 9px;
+  border: 1px solid rgba(229, 72, 77, 0.4); border-radius: 6px;
+  background: rgba(229, 72, 77, 0.08);
+}
+.cs-error-line { font-size: 11.5px; color: #e5484d; line-height: 1.6; }
+.cs-save-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.cs-name-input {
+  flex: 1; min-width: 0; height: 30px; padding: 0 10px;
+  border: 1px solid var(--border-strong); border-radius: 7px;
+  background: var(--bg); color: var(--text); outline: none; font-size: 12px;
+}
+.cs-name-input:focus { border-color: var(--accent); }
+.cs-save-msg { font-size: 11.5px; margin-top: 6px; min-height: 1px; }
+.cs-save-msg.ok { color: #0f8a5f; }
+.cs-save-msg.err { color: #e5484d; }
+.cs-saved { margin-top: 14px; }
+.cs-saved-title { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; font-weight: 500; }
+.cs-saved-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 9px; margin-bottom: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-panel);
+}
+.cs-saved-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.cs-saved-dots { display: flex; gap: 2px; flex: none; }
+.cs-saved-dot { width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
+.cs-saved-name { flex: 1; min-width: 0; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-del-btn:hover { color: #e5484d; }
+.swatch-custom { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12), 0 0 0 1px var(--bg); }
+
 .ai-config-note {
   font-size: 11.5px;
   color: var(--text-faint);

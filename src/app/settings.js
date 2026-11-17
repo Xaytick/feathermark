@@ -2,6 +2,7 @@
 import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
 import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
+import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
 
 const SCHEMES = [
   { id: 'ink', color: '#2f6feb' },
@@ -113,6 +114,231 @@ export function createSettings({ body, onApply }) {
     return wrap;
   }
 
+
+  /* ---------------------------------------------------------- 自定义配色 */
+  // 色板：内置 4 色 + 已保存的自定义方案；点选即应用。自定义 id 以 p 开头。
+  function buildSwatches() {
+    const swatches = document.createElement('div');
+    swatches.className = 'swatches';
+    swatches.id = 'scheme-swatches';
+    const all = [
+      ...SCHEMES.map((s) => ({ id: s.id, color: s.color, title: s.id })),
+      ...listSchemes()
+        .filter((s) => s.colors && s.colors.length)
+        .map((s) => ({ id: s.id, color: s.colors[0].hex, title: s.name })),
+    ];
+    all.forEach((s) => {
+      const b = document.createElement('button');
+      b.className = 'swatch' + (prefs.scheme === s.id ? ' on' : '');
+      if (s.id.startsWith('p')) b.classList.add('swatch-custom');
+      b.style.background = s.color;
+      b.title = s.title;
+      b.dataset.scheme = s.id;
+      b.addEventListener('click', () => {
+        swatches.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        apply('scheme', s.id);
+      });
+      swatches.appendChild(b);
+    });
+    return swatches;
+  }
+
+  function buildColorSchemesSection() {
+    const wrap = document.createElement('div');
+    wrap.className = 'color-schemes';
+
+    // 1) 批量导入
+    const hint = document.createElement('div');
+    hint.className = 'cs-hint';
+    hint.textContent = '支持 hex（#fff / #2F6FEB）、rgb(15,138,95)、「255, 0, 0」等格式，换行或逗号分隔多个。';
+    wrap.appendChild(hint);
+
+    const input = document.createElement('textarea');
+    input.className = 'cs-input';
+    input.id = 'cs-input';
+    input.rows = 3;
+    input.placeholder = '#2F6FEB, rgb(15, 138, 95)\n255, 255, 255\n#0f8a5f';
+    input.spellcheck = false;
+    wrap.appendChild(input);
+
+    const parseBtn = document.createElement('button');
+    parseBtn.className = 'btn cs-parse-btn';
+    parseBtn.textContent = '解析预览';
+    wrap.appendChild(parseBtn);
+
+    // 2) 解析结果：有效色块 + 错误提示
+    const preview = document.createElement('div');
+    preview.className = 'cs-preview';
+    preview.id = 'cs-preview';
+    wrap.appendChild(preview);
+
+    let parsed = []; // 当前解析出的有效颜色
+
+    const renderPreview = (result) => {
+      parsed = result ? result.colors : [];
+      preview.innerHTML = '';
+      if (!result) return;
+      if (result.colors.length) {
+        const list = document.createElement('div');
+        list.className = 'cs-swatches';
+        result.colors.forEach((c) => {
+          const chip = document.createElement('div');
+          chip.className = 'cs-chip';
+          const dot = document.createElement('span');
+          dot.className = 'cs-chip-dot';
+          dot.style.background = c.hex;
+          const label = document.createElement('span');
+          label.className = 'cs-chip-label';
+          label.textContent = c.hex;
+          chip.appendChild(dot);
+          chip.appendChild(label);
+          list.appendChild(chip);
+        });
+        preview.appendChild(list);
+      }
+      if (result.errors.length) {
+        const errBox = document.createElement('div');
+        errBox.className = 'cs-errors';
+        result.errors.forEach((e) => {
+          const line = document.createElement('div');
+          line.className = 'cs-error-line';
+          line.textContent = e.error;
+          errBox.appendChild(line);
+        });
+        preview.appendChild(errBox);
+      }
+      if (!result.colors.length && !result.errors.length) {
+        const empty = document.createElement('div');
+        empty.className = 'cs-preview-empty';
+        empty.textContent = '输入颜色后点「解析预览」';
+        preview.appendChild(empty);
+      }
+      saveRow.style.display = parsed.length ? '' : 'none';
+    };
+
+    parseBtn.addEventListener('click', () => {
+      renderPreview(parseColors(input.value));
+    });
+    input.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        renderPreview(parseColors(input.value));
+      }
+    });
+    input.addEventListener('input', () => renderPreview(null));
+
+    // 3) 命名保存（仅在有有效颜色时显示）
+    const saveRow = document.createElement('div');
+    saveRow.className = 'cs-save-row';
+    saveRow.id = 'cs-save-row';
+    saveRow.style.display = 'none';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'cs-name-input';
+    nameInput.id = 'cs-name-input';
+    nameInput.placeholder = '配色名称';
+    nameInput.maxLength = 40;
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn';
+    saveBtn.textContent = '保存配色';
+    const saveMsg = document.createElement('div');
+    saveMsg.className = 'cs-save-msg';
+    saveBtn.addEventListener('click', () => {
+      saveMsg.textContent = '';
+      const res = saveScheme(nameInput.value, parsed);
+      if (!res.ok) {
+        saveMsg.className = 'cs-save-msg err';
+        saveMsg.textContent = res.error;
+        return;
+      }
+      saveMsg.className = 'cs-save-msg ok';
+      saveMsg.textContent = `已保存「${res.scheme.name}」`;
+      nameInput.value = '';
+      renderSavedList();
+      // 让色板实时显示新方案并立即应用
+      const sw = document.getElementById('scheme-swatches');
+      if (sw) sw.replaceWith(buildSwatches());
+      apply('scheme', res.scheme.id);
+    });
+    saveRow.appendChild(nameInput);
+    saveRow.appendChild(saveBtn);
+    wrap.appendChild(saveRow);
+    wrap.appendChild(saveMsg);
+
+    // 4) 已保存列表：应用 / 删除
+    const savedBox = document.createElement('div');
+    savedBox.className = 'cs-saved';
+    savedBox.id = 'cs-saved';
+    wrap.appendChild(savedBox);
+
+    function renderSavedList() {
+      savedBox.innerHTML = '';
+      const schemes = listSchemes();
+      const title = document.createElement('div');
+      title.className = 'cs-saved-title';
+      title.textContent = `已保存配色（${schemes.length}）`;
+      savedBox.appendChild(title);
+      if (!schemes.length) {
+        const empty = document.createElement('div');
+        empty.className = 'cs-preview-empty';
+        empty.textContent = '还没有保存的配色';
+        savedBox.appendChild(empty);
+        return;
+      }
+      schemes.forEach((s) => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'cs-saved-row';
+        if (prefs.scheme === s.id) rowEl.classList.add('on');
+
+        const dots = document.createElement('div');
+        dots.className = 'cs-saved-dots';
+        s.colors.slice(0, 6).forEach((c) => {
+          const d = document.createElement('span');
+          d.className = 'cs-saved-dot';
+          d.style.background = c.hex;
+          d.title = c.hex;
+          dots.appendChild(d);
+        });
+
+        const name = document.createElement('span');
+        name.className = 'cs-saved-name';
+        name.textContent = s.name;
+
+        const useBtn = document.createElement('button');
+        useBtn.className = 'mini-btn';
+        useBtn.textContent = prefs.scheme === s.id ? '使用中' : '应用';
+        useBtn.disabled = prefs.scheme === s.id;
+        useBtn.addEventListener('click', () => {
+          apply('scheme', s.id);
+          const sw = document.getElementById('scheme-swatches');
+          if (sw) sw.replaceWith(buildSwatches());
+          renderSavedList();
+        });
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'mini-btn cs-del-btn';
+        delBtn.textContent = '删除';
+        delBtn.addEventListener('click', () => {
+          deleteScheme(s.id);
+          if (prefs.scheme === s.id) apply('scheme', 'ink');
+          renderSavedList();
+          const sw = document.getElementById('scheme-swatches');
+          if (sw) sw.replaceWith(buildSwatches());
+        });
+
+        rowEl.appendChild(dots);
+        rowEl.appendChild(name);
+        rowEl.appendChild(useBtn);
+        rowEl.appendChild(delBtn);
+        savedBox.appendChild(rowEl);
+      });
+    }
+
+    renderSavedList();
+    renderPreview(null);
+    return wrap;
+  }
 
   /* ---------------------------------------------------------- AI 配置 */
   function buildAiSection() {
@@ -372,20 +598,7 @@ export function createSettings({ body, onApply }) {
       )
     );
 
-    const swatches = document.createElement('div');
-    swatches.className = 'swatches';
-    SCHEMES.forEach((s) => {
-      const b = document.createElement('button');
-      b.className = 'swatch' + (prefs.scheme === s.id ? ' on' : '');
-      b.style.background = s.color;
-      b.title = s.id;
-      b.addEventListener('click', () => {
-        swatches.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'));
-        b.classList.add('on');
-        apply('scheme', s.id);
-      });
-      swatches.appendChild(b);
-    });
+    const swatches = buildSwatches();
     g1.appendChild(row('配色', '只换强调色，明暗基调由主题决定', swatches));
     g1.appendChild(
       row(
@@ -402,6 +615,11 @@ export function createSettings({ body, onApply }) {
       )
     );
     body.appendChild(g1);
+
+    /* ---------------------------------------------------------- 自定义配色 */
+    const gColor = group('自定义配色');
+    gColor.appendChild(buildColorSchemesSection());
+    body.appendChild(gColor);
 
     /* ---------------------------------------------------------- 字体 */
     const g2 = group('字体');
