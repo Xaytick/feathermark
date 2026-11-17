@@ -1,6 +1,7 @@
 // 设置面板：从「声明式 schema」生成 DOM，改一项立即生效并落盘。
 import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
+import { getModels, addModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
 
 const SCHEMES = [
   { id: 'ink', color: '#2f6feb' },
@@ -145,6 +146,9 @@ export function createSettings({ body, onApply }) {
     baseInput.placeholder = 'https://你的服务商/v1';
     baseInput.spellcheck = false;
 
+    const modelSel = document.createElement('select');
+    modelSel.title = '已配置的模型';
+
     const modelInput = document.createElement('input');
     modelInput.type = 'text';
     modelInput.placeholder = '模型 ID';
@@ -195,7 +199,7 @@ export function createSettings({ body, onApply }) {
 
     wrap.appendChild(row('服务商', '选预设会自动填好接口地址与常用模型', wrapSelect(presetSel)));
     wrap.appendChild(wideRow('接口地址', 'OpenAI 兼容地址，通常以 /v1 结尾', baseInput));
-    wrap.appendChild(wideRow('模型', '可手填，也可点「拉取列表」从接口取', modelInput, fetchBtn, modelList));
+    wrap.appendChild(wideRow('模型', '选择已配置模型，或手填后保存', modelSel, modelInput, fetchBtn, modelList));
     wrap.appendChild(wideRow('API Key', '只存在本机配置文件里，不写入浏览器存储', keyInput));
     wrap.appendChild(
       wideRow('额外请求参数', 'JSON 对象；选预设会自动填好，一般不用改', extraInput)
@@ -216,6 +220,38 @@ export function createSettings({ body, onApply }) {
       return holder;
     }
 
+    function refreshModelOptions() {
+      const list = getModels();
+      const current = modelInput.value.trim();
+      modelSel.innerHTML = '';
+      if (!list.length) {
+        const o = document.createElement('option');
+        o.textContent = '未配置模型';
+        o.value = '';
+        modelSel.appendChild(o);
+      }
+      list.forEach((name) => {
+        const o = document.createElement('option');
+        o.value = name;
+        o.textContent = name;
+        modelSel.appendChild(o);
+      });
+      modelList.innerHTML = '';
+      list.forEach((name) => {
+        const o = document.createElement('option');
+        o.value = name;
+        modelList.appendChild(o);
+      });
+      if (current && list.includes(current)) modelSel.value = current;
+    }
+
+    modelSel.addEventListener('change', () => {
+      if (!modelSel.value) return;
+      modelInput.value = modelSel.value;
+      result.textContent = '';
+    });
+    onModelsChange(refreshModelOptions);
+
     async function load() {
       try {
         aiCfg = await ipc.aiConfigGet();
@@ -226,24 +262,13 @@ export function createSettings({ body, onApply }) {
         keyInput.placeholder = aiCfg.has_key ? `已保存 ${aiCfg.key_hint}（留空不修改）` : '粘贴 API Key（本地模型可留空）';
         extraInput.value = aiCfg.extra_body || '{}';
         skipCheck.checked = !!aiCfg.skip_temperature;
-        const p = AI_PRESETS.find((x) => x.id === presetSel.value);
-        status.innerHTML =
-          `密钥存在本机：<code>${aiCfg.config_dir || ''}</code>，文件权限 600，仅当前用户可读。` +
-          `<br>${p && p.note ? p.note : ''}` +
-          (p && p.doc ? ` <a href="${p.doc}" data-doc-url="${p.doc}">官方文档 ↗</a>` : '') +
-          `<br>快捷键 <code>⌘J</code> 打开 AI 编辑；生成后先看差异，点「应用替换」才写入文档。`;
+        syncModelsFromConfig(aiCfg.model);
+        refreshModelOptions();
+        status.textContent = '';
       } catch (e) {
         status.textContent = '读取 AI 配置失败：' + ipc.describeError(e);
       }
     }
-
-    // WebView 里 <a target="_blank"> 不一定能开外链，交给系统默认浏览器
-    status.addEventListener('click', (e) => {
-      const a = e.target.closest('a[data-doc-url]');
-      if (!a) return;
-      e.preventDefault();
-      ipc.openPath(a.dataset.docUrl).catch(() => {});
-    });
 
     presetSel.addEventListener('change', () => {
       const p = AI_PRESETS.find((x) => x.id === presetSel.value);
@@ -308,9 +333,10 @@ export function createSettings({ body, onApply }) {
           extraBody: extraInput.value || '{}',
           skipTemperature: skipCheck.checked,
         });
+        addModel(modelInput.value.trim());
         const r = await ipc.aiTest();
         result.style.color = 'var(--accent)';
-        result.textContent = `连接正常 · ${r.model} · ${r.latency_ms}ms · 回复「${String(r.reply || '').trim().slice(0, 12)}」`;
+        result.textContent = `连接正常 · ${r.model} · ${r.latency_ms}ms`;
         keyInput.value = '';
         load();
       } catch (e) {
@@ -420,7 +446,7 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g3);
 
     /* ---------------------------------------------------------- AI */
-    const gAi = group('AI 编辑');
+    const gAi = group('AI 模型与接口');
     gAi.appendChild(buildAiSection());
     body.appendChild(gAi);
 
@@ -433,7 +459,7 @@ export function createSettings({ body, onApply }) {
       <div>技术栈：Tauri v2 + Rust · CodeMirror 5 · unified/remark 渲染管线 · KaTeX · Mermaid</div>
       <div>预览渲染器与文件命令层参考并移植自开源项目
         <a href="#" id="about-tizu">TizuMark</a>（GPL-3.0），本项目同样以 GPL-3.0 发布。</div>
-      <div style="margin-top:8px;color:var(--text-faint)">快捷键：⌘N 新建 · ⌘O 打开 · ⌘S 保存 · ⌘P 快速打开 · ⌘F 查找 · ⌘⇧F 工作区搜索 · ⌘J AI 编辑 · ⌘, 设置</div>`;
+      <div style="margin-top:8px;color:var(--text-faint)">快捷键：⌘N 新建 · ⌘O 打开 · ⌘S 保存 · ⌘P 快速打开 · ⌘F 查找 · ⌘⇧F 工作区搜索 · ⌘J Agent 编辑 · ⌘, 设置</div>`;
     g4.appendChild(about);
     body.appendChild(g4);
 

@@ -12,6 +12,7 @@ import { showMenu, toast, promptDialog } from './ui.js';
 import { EDIT_TEMPLATES } from './edit-templates.js';
 import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
+import { getModels, addModel, onModelsChange } from './model-list.js';
 import { parseEdits, applyEdits } from './agent.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
@@ -103,6 +104,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const skillChip = $('chat-skill-chip');
   const sendBtn = $('chat-send');
   const hintEl = $('chat-hint');
+  const modelSel = $('chat-model');
   const applyDialog = $('apply-dialog');
   const applyScopeEl = $('apply-scope');
   const applyDiffEl = $('apply-diff');
@@ -127,6 +129,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let applyErrors = [];
   let streamRequestId = null;
   let lastLimitToast = 0;
+  let activeModel = '';
 
   const skills = Object.assign(
     {},
@@ -260,7 +263,11 @@ function numberedLines(lines, startNo) {
       btn.textContent = '复制';
       btn.addEventListener('click', async () => {
         const code = pre.querySelector('code');
-        const text = code ? code.textContent : pre.textContent;
+        const clone = (code || pre).cloneNode(true);
+        clone.querySelectorAll('.code-lang, .code-copy').forEach((n) => n.remove());
+        let text = clone.textContent || '';
+        // 部分渲染器会把围栏和语言标记留在 code 文本里，复制时统一剥掉
+        text = text.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
         try {
           await navigator.clipboard.writeText(text);
           toast('已复制代码');
@@ -639,6 +646,53 @@ function numberedLines(lines, startNo) {
     return parts.join('\n\n');
   }
 
+  async function applyModel(name) {
+    const clean = String(name || '').trim();
+    if (!clean) return;
+    try {
+      const cfg = await ipc.aiConfigGet();
+      await ipc.aiConfigSet({
+        provider: cfg.provider || 'custom',
+        baseUrl: cfg.base_url || '',
+        model: clean,
+        apiKey: null,
+        temperature: cfg.temperature ?? 0.3,
+        maxTokens: cfg.max_tokens ?? 4096,
+        extraBody: cfg.extra_body || '{}',
+        skipTemperature: !!cfg.skip_temperature,
+      });
+      activeModel = clean;
+      toast(`已切换模型：${clean}`);
+    } catch (e) {
+      toast(ipc.describeError(e), { error: true });
+    }
+  }
+
+  async function renderModels() {
+    const cfg = await ipc.aiConfigGet().catch(() => ({}));
+    activeModel = cfg.model || activeModel || '';
+    const list = getModels();
+    if (activeModel && !list.includes(activeModel)) list.unshift(activeModel);
+    modelSel.innerHTML = '';
+    if (!list.length) {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '未配置模型';
+      modelSel.appendChild(empty);
+    }
+    list.forEach((name) => {
+      const o = document.createElement('option');
+      o.value = name;
+      o.textContent = name;
+      modelSel.appendChild(o);
+    });
+    const add = document.createElement('option');
+    add.value = '__add__';
+    add.textContent = '＋ 添加模型';
+    modelSel.appendChild(add);
+    modelSel.value = activeModel || (list[0] || '');
+  }
+
   function estimateTokens(text) {
     return Math.max(1, Math.round(String(text || '').length / 2.2));
   }
@@ -887,6 +941,20 @@ function numberedLines(lines, startNo) {
   $('chat-edit').addEventListener('click', (e) => showEditTemplates(e.currentTarget));
   $('chat-skills').addEventListener('click', (e) => showSkills(e.currentTarget));
   $('chat-attach').addEventListener('click', () => pickAttachments());
+  modelSel.addEventListener('change', async () => {
+    if (modelSel.value === '__add__') {
+      modelSel.value = activeModel || (getModels()[0] || '');
+      const name = await promptDialog({ title: '添加模型', value: '', placeholder: '模型 ID，例如 deepseek-chat' });
+      if (name && name.trim()) {
+        addModel(name.trim());
+        await applyModel(name.trim());
+        renderModels();
+      }
+      return;
+    }
+    await applyModel(modelSel.value);
+  });
+  onModelsChange(() => renderModels());
   $('apply-close').addEventListener('click', closeApply);
   $('apply-cancel').addEventListener('click', closeApply);
   $('apply-accept').addEventListener('click', () => acceptApply('accepted'));
@@ -997,6 +1065,7 @@ function numberedLines(lines, startNo) {
     updateContextChip();
     updateSkillChip();
     updateSendState();
+    renderModels();
   }
 
   return {
