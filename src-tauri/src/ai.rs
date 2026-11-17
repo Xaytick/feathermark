@@ -297,12 +297,22 @@ pub async fn ai_chat(
 
     let value: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("响应不是合法 JSON：{}", e))?;
-    let content = value["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let choice = &value["choices"][0];
+    let content = choice["message"]["content"].as_str().unwrap_or("").to_string();
     if content.trim().is_empty() {
-        return Err(format!("模型没有返回内容：{}", truncate(&text, 300)));
+        let finish = choice["finish_reason"].as_str().unwrap_or("");
+        let has_reasoning = choice["message"]["reasoning_content"]
+            .as_str()
+            .map(|r| !r.trim().is_empty())
+            .unwrap_or(false);
+        let hint = if finish == "length" && has_reasoning {
+            "（输出被 max_tokens 截断：模型先把 token 用在 reasoning_content 上了；请增大 max_tokens，或换一个非推理模型）"
+        } else if finish == "length" {
+            "（输出被 max_tokens 截断，请增大 max_tokens）"
+        } else {
+            ""
+        };
+        return Err(format!("模型没有返回内容{}：{}", hint, truncate(&text, 300)));
     }
 
     Ok(serde_json::json!({
@@ -315,26 +325,51 @@ pub async fn ai_chat(
     }))
 }
 
-/// 配置页的「测试连接」：发一句最短的请求，验证地址/密钥/模型三者都通。
+/// 配置页的「测试连接」：验证地址/密钥/模型三者都通。
+///
+/// 注意：不能用 16 token 这种「最短请求」。DeepSeek-V4-Flash、GLM-5.3、Kimi K3
+/// 这类推理模型会先输出 reasoning_content，16 token 还没到正文就被截断了。
+/// 这里给两档预算，第一档失败且明显是空正文时自动加大一次。
 #[tauri::command]
 pub async fn ai_test(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let started = Instant::now();
-    let res = ai_chat(
-        app,
-        vec![ChatMessage {
-            role: "user".into(),
-            content: "只回复两个字：可用".into(),
-        }],
-        Some(16),
-        Some(0.0),
-    )
-    .await?;
-    Ok(serde_json::json!({
-        "ok": true,
-        "reply": res["content"],
-        "model": res["model"],
-        "latency_ms": started.elapsed().as_millis(),
-    }))
+    let mut last_error = String::new();
+
+    for budget in [512u32, 2048u32] {
+        let res = ai_chat(
+            app.clone(),
+            vec![ChatMessage {
+                role: "user".into(),
+                content: "只回复两个字：可用".into(),
+            }],
+            Some(budget),
+            Some(0.0),
+        )
+        .await;
+
+        match res {
+            Ok(r) => {
+                return Ok(serde_json::json!({
+                    "ok": true,
+                    "reply": r["content"],
+                    "model": r["model"],
+                    "latency_ms": started.elapsed().as_millis(),
+                }));
+            }
+            Err(e) => {
+                // 401/404/429 这类错误重试没意义，直接返回
+                if !e.contains("模型没有返回内容") {
+                    return Err(e);
+                }
+                last_error = e;
+            }
+        }
+    }
+
+    Err(format!(
+        "连接测试失败：{}。这个模型可能把所有输出都用在思考上；请在设置里增大 max_tokens，或换一个非推理模型。",
+        last_error
+    ))
 }
 
 /// 拉取模型列表（GET /models）：选模型时不用手打名字。

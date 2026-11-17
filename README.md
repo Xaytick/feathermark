@@ -74,6 +74,9 @@
 - **API Key**：只写进本机配置文件，权限 600
 - **额外请求参数**：需要 `thinking`、`reasoning_effort` 等字段时，填一个 JSON 对象；它会合并进请求体，但不能覆盖 `model` / `messages` / `max_tokens` / `stream`
 - **不发送 temperature**：有些推理模型会拒绝这个字段，勾上后整个字段不发给服务端
+- **推理模型的 token**：DeepSeek-Flash、GLM-5.3、Kimi K3 这类模型会先生成 `reasoning_content`，
+  它也会计入 output token 与耗时。以 DeepSeek-Flash 为例，不关思考时一次编辑用了 4852 output tokens / 36s；
+  在「额外请求参数」填 `{"thinking":{"type":"disabled"}}` 后，同一次测试只返回 1 output token。
 
 DeepSeek、OpenAI、Kimi、智谱、百炼、Gemini、Groq、硅基流动、Ollama、自建 vLLM 等只要是 OpenAI 兼容接口都可以接，具体型号请查各家官方文档。
 
