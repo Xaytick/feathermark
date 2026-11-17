@@ -884,16 +884,6 @@ async function boot() {
       };
     },
     getWorkspace: () => state.workspace,
-    insertText: (text, mode) => {
-      if (prefs.viewMode === 'preview') setViewMode('split');
-      if (mode === 'selection' && editor.cm.somethingSelected()) editor.cm.replaceSelection(text);
-      else {
-        const cur = editor.cm.getCursor();
-        editor.cm.replaceRange(text, cur);
-      }
-      editor.focus();
-      editor.cm.refresh();
-    },
     openSettings: () => openSettings(),
   });
   chat.setRefresh(() => editor && editor.refresh());

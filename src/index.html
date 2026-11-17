@@ -231,6 +231,32 @@
     </div>
   </div>
 
+  <!-- Agent 回复 → 差异确认 -->
+  <div id="apply-dialog" class="overlay hidden">
+    <div class="ai-box">
+      <header class="ai-head">
+        <div class="ai-title">
+          <svg viewBox="0 0 24 24" class="ai-spark"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z" /></svg>
+          确认修改文档
+        </div>
+        <span id="apply-scope" class="ai-scope"></span>
+        <button class="mini-btn" id="apply-close" title="关闭">✕</button>
+      </header>
+      <div class="ai-source">Agent 回复已转换为差异。勾选要接受的改动，确认后才会写入文档。</div>
+      <div class="ai-body">
+        <div id="apply-diff" class="ai-diff"></div>
+      </div>
+      <footer class="ai-foot">
+        <span class="ai-meta" id="apply-meta"></span>
+        <div class="ai-foot-actions">
+          <button class="btn ghost" id="apply-cancel">取消</button>
+          <button class="btn ghost hidden" id="apply-all">全部应用</button>
+          <button class="btn success" id="apply-accept">同意修改</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
   <!-- AI 编辑 -->
   <div id="ai-dialog" class="overlay hidden">
     <div class="ai-box">

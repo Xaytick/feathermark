@@ -10,6 +10,7 @@ import { prefs, savePrefs } from './store.js';
 import { showMenu, toast, promptDialog } from './ui.js';
 import { EDIT_TEMPLATES } from './edit-templates.js';
 import { createAgentEdit } from './agent-edit.js';
+import { buildDiffView } from './diff-view.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const SKILL_KEY = 'feathermark.agent.skills.v1';
@@ -84,7 +85,7 @@ const shortTime = (ts) => {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export function createChat({ editor, getContext, getWorkspace, insertText, openSettings, onLayoutChange }) {
+export function createChat({ editor, getContext, getWorkspace, openSettings, onLayoutChange }) {
   const $ = (id) => document.getElementById(id);
   const panel = $('chat-panel');
   const splitter = $('splitter-chat');
@@ -97,6 +98,12 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
   const skillChip = $('chat-skill-chip');
   const sendBtn = $('chat-send');
   const hintEl = $('chat-hint');
+  const applyDialog = $('apply-dialog');
+  const applyScopeEl = $('apply-scope');
+  const applyDiffEl = $('apply-diff');
+  const applyMetaEl = $('apply-meta');
+  const btnApplyAccept = $('apply-accept');
+  const btnApplyAll = $('apply-all');
 
   // Agent 编辑模板流程由 Agent 模块统一持有；状态栏、快捷键、菜单都通过本模块调用。
   const agentEdit = createAgentEdit({ editor, onNeedConfig: openSettings });
@@ -108,6 +115,8 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
   let activeSkill = null;
   let busy = false;
   let dropDepth = 0;
+  let applyView = null;
+  let applyScope = null;
 
   const skills = Object.assign(
     {},
@@ -207,6 +216,16 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
     }
   }
 
+/** 从回复里提取可应用正文：优先 Markdown 代码块，其次最后一个代码块，最后才用整条回复。 */
+function extractProposal(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const fences = [...text.matchAll(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g)];
+  if (!fences.length) return text;
+  const preferred = fences.find((m) => /^(md|markdown)$/i.test(m[1] || '')) || fences[fences.length - 1];
+  return preferred[2].replace(/\n+$/, '');
+}
+
   function messageNode(msg) {
     const wrap = document.createElement('div');
     wrap.className = `chat-msg ${msg.role}` + (msg.status === 'error' ? ' error' : '');
@@ -272,18 +291,10 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
     if (msg.role === 'assistant' && !busy) {
       const actions = document.createElement('div');
       actions.className = 'chat-msg-actions';
-      const insert = document.createElement('button');
-      insert.textContent = '插入编辑器';
-      insert.addEventListener('click', () => {
-        insertText(msg.content, 'cursor');
-        toast('已插入编辑器');
-      });
-      const replace = document.createElement('button');
-      replace.textContent = '替换选区';
-      replace.addEventListener('click', () => {
-        insertText(msg.content, 'selection');
-        toast('已替换选中内容');
-      });
+      const diffBtn = document.createElement('button');
+      diffBtn.textContent = '查看差异';
+      diffBtn.title = '先在差异中确认，再同意修改文档';
+      diffBtn.addEventListener('click', () => openApply(extractProposal(msg.content)));
       const copy = document.createElement('button');
       copy.textContent = '复制';
       copy.addEventListener('click', async () => {
@@ -294,7 +305,7 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
           toast('复制失败', { error: true });
         }
       });
-      actions.append(insert, replace, copy);
+      actions.append(diffBtn, copy);
       wrap.appendChild(actions);
     }
 
@@ -320,6 +331,91 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
       wrap.appendChild(retry);
     }
     return wrap;
+  }
+
+  function captureReplaceScope() {
+    const cm = editor.cm;
+    const docText = cm.getValue();
+    const docLines = docText.split('\n');
+    const hasSel = cm.somethingSelected();
+    let fromLine = 1;
+    let toLine = docLines.length;
+    if (hasSel) {
+      const a = cm.getCursor('from');
+      const b = cm.getCursor('to');
+      fromLine = Math.min(a.line, b.line) + 1;
+      toLine = Math.max(a.line, b.line) + 1;
+    }
+    const baseLines = docLines.slice(fromLine - 1, toLine);
+    return {
+      text: baseLines.join('\n'),
+      snapshot: docText,
+      from: { line: fromLine - 1, ch: 0 },
+      to: { line: toLine - 1, ch: (docLines[toLine - 1] || '').length },
+      lines: toLine - fromLine + 1,
+      isSelection: hasSel,
+    };
+  }
+
+  function updateApplyState() {
+    if (!applyView) return;
+    const total = applyView.changeCount;
+    const accepted = applyView.acceptedCount();
+    const partial = total > 0 && accepted < total;
+    btnApplyAccept.textContent = total ? `同意修改（${accepted}/${total} 处）` : '没有可应用的改动';
+    btnApplyAccept.disabled = accepted === 0;
+    btnApplyAll.classList.toggle('hidden', !partial);
+    applyMetaEl.textContent = total ? `${accepted}/${total} 处改动已选` : '模型没有给出改动';
+  }
+
+  function openApply(proposal) {
+    if (!proposal || !proposal.trim()) {
+      toast('回复中没有可应用的内容', { error: true });
+      return;
+    }
+    applyScope = captureReplaceScope();
+    if (!applyScope.text.trim()) {
+      toast('文档还是空的，没有可比较的内容', { error: true });
+      return;
+    }
+    applyScopeEl.textContent = applyScope.isSelection
+      ? `选中 ${applyScope.lines} 行 · 用回复替换这几行`
+      : `整篇 ${applyScope.lines} 行 · 用回复替换全文`;
+    applyView = buildDiffView(applyScope.text, proposal);
+    applyView.onSelectionChange(updateApplyState);
+    applyDiffEl.className = 'ai-diff';
+    applyDiffEl.innerHTML = '';
+    applyDiffEl.appendChild(applyView.node);
+    applyMetaEl.classList.remove('error');
+    updateApplyState();
+    applyDialog.classList.remove('hidden');
+  }
+
+  function closeApply() {
+    applyDialog.classList.add('hidden');
+    applyView = null;
+    applyScope = null;
+  }
+
+  function acceptApply(mode) {
+    if (!applyView || !applyScope) return;
+    if (editor.cm.getValue() !== applyScope.snapshot) {
+      applyMetaEl.textContent = '文档在查看差异期间被改动，请关闭后重新查看差异';
+      applyMetaEl.classList.add('error');
+      return;
+    }
+    const total = applyView.changeCount;
+    const accepted = mode === 'all' ? total : applyView.acceptedCount();
+    if (!total || !accepted) {
+      toast('没有勾选要应用的改动', { error: true });
+      return;
+    }
+    const next = applyView.compose(mode);
+    editor.cm.operation(() => editor.cm.replaceRange(next, applyScope.from, applyScope.to));
+    editor.cm.focus();
+    editor.cm.refresh();
+    closeApply();
+    toast(accepted === total ? '已同意修改，⌘Z 可撤销' : `已应用 ${accepted}/${total} 处修改，⌘Z 可撤销`);
   }
 
   function renderMessages() {
@@ -610,6 +706,13 @@ export function createChat({ editor, getContext, getWorkspace, insertText, openS
   $('chat-edit').addEventListener('click', (e) => showEditTemplates(e.currentTarget));
   $('chat-skills').addEventListener('click', (e) => showSkills(e.currentTarget));
   $('chat-attach').addEventListener('click', () => pickAttachments());
+  $('apply-close').addEventListener('click', closeApply);
+  $('apply-cancel').addEventListener('click', closeApply);
+  $('apply-accept').addEventListener('click', () => acceptApply('accepted'));
+  $('apply-all').addEventListener('click', () => acceptApply('all'));
+  applyDialog.addEventListener('pointerdown', (e) => {
+    if (e.target === applyDialog) closeApply();
+  });
   $('chat-sessions-toggle').addEventListener('click', (e) => {
     sessionsEl.classList.toggle('collapsed');
     e.currentTarget.classList.toggle('collapsed');

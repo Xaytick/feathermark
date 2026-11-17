@@ -1134,7 +1134,7 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
   box-shadow: var(--shadow-pop);
   overflow: hidden;
 }
-#ai-dialog { padding-top: 8vh; align-items: flex-start; }
+#ai-dialog, #apply-dialog { padding-top: 8vh; align-items: flex-start; }
 
 .ai-head {
   display: flex;
@@ -1603,3 +1603,5 @@ html[data-mode='dark'] {
 .chat-menu-note { padding: 4px 10px 8px; font-size: 11px; color: var(--text-faint); line-height: 1.6; }
 
 #chat-panel.chat-dropping { box-shadow: inset 0 0 0 2px var(--accent); }
+
+#apply-dialog .ai-source { padding-bottom: 6px; }
