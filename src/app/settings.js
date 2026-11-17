@@ -143,11 +143,7 @@ export function createSettings({ body, onApply }) {
     extraInput.spellcheck = false;
     extraInput.title = 'JSON 对象，合并进请求体，例如 {"reasoning_effort":"none"}';
 
-    const skipCheck = document.createElement('input');
-    skipCheck.type = 'checkbox';
-    skipCheck.style.width = '14px';
-    skipCheck.style.height = '14px';
-    skipCheck.style.accentColor = 'var(--accent)';
+    const skipToggle = toggle(false, () => {});
 
     const keyInput = document.createElement('input');
     keyInput.type = 'password';
@@ -197,7 +193,7 @@ export function createSettings({ body, onApply }) {
     wrap.appendChild(
       wideRow('额外请求参数', 'JSON 对象，合并进请求体，一般不用改', extraInput)
     );
-    wrap.appendChild(wideRow('不发送 temperature', '部分推理模型会拒绝这个字段', skipCheck));
+    wrap.appendChild(wideRow('不发送 temperature', '部分推理模型会拒绝这个字段', skipToggle));
     wrap.appendChild(result);
     wrap.appendChild(status);
 
@@ -279,7 +275,7 @@ export function createSettings({ body, onApply }) {
         keyInput.value = '';
         keyInput.placeholder = aiCfg.has_key ? `已保存 ${aiCfg.key_hint}（留空不修改）` : '粘贴 API Key（本地模型可留空）';
         extraInput.value = aiCfg.extra_body || '{}';
-        skipCheck.checked = !!aiCfg.skip_temperature;
+        skipToggle.classList.toggle('on', !!aiCfg.skip_temperature);
         syncModelsFromConfig(aiCfg.model);
         renderModelChips();
         status.textContent = '';
@@ -302,7 +298,7 @@ export function createSettings({ body, onApply }) {
           temperature: 0.3,
           maxTokens: 4096,
           extraBody: extraInput.value || '{}',
-          skipTemperature: skipCheck.checked,
+          skipTemperature: skipToggle.classList.contains('on'),
         });
         const list = await ipc.aiModels();
         modelList.innerHTML = '';
@@ -335,7 +331,7 @@ export function createSettings({ body, onApply }) {
           temperature: 0.3,
           maxTokens: 4096,
           extraBody: extraInput.value || '{}',
-          skipTemperature: skipCheck.checked,
+          skipTemperature: skipToggle.classList.contains('on'),
         });
         addModel(modelInput.value.trim());
         const r = await ipc.aiTest();
