@@ -1993,3 +1993,40 @@ html[data-theme-studio] .markdown-body pre code .hljs-params { color: var(--ed-t
 .ts-slider-box { display: flex; align-items: center; gap: 10px; }
 .ts-slider { width: 180px; accent-color: var(--accent); cursor: pointer; }
 .ts-slider-val { min-width: 44px; text-align: right; font-size: 11.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+/* ==================================================================
+   背景图片层：独立的绝对定位层，避免 filter:blur 影响正文文字。
+   inset 负值 + scale 抵消模糊时边缘发虚/露底。仅在有图片时显示。
+   ================================================================== */
+#preview-scroll { position: relative; }
+.ed-bg-layer {
+  position: absolute;
+  inset: -24px;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--ed-bg-image, none);
+  background-size: var(--ed-bg-size, cover);
+  background-position: center;
+  background-repeat: var(--ed-bg-repeat, no-repeat);
+  opacity: var(--ed-bg-opacity, 0);
+  filter: blur(var(--ed-bg-blur, 0));
+  transform: scale(1.04);
+  transition: opacity var(--dur);
+}
+/* 内容层必须在背景图之上 */
+html[data-theme-studio] .CodeMirror,
+html[data-theme-studio] #preview { position: relative; z-index: 1; }
+
+/* 背景图片设置控件 */
+.ts-img-box { display: flex; align-items: center; gap: 12px; margin: 8px 0 2px; }
+.ts-img-thumb {
+  width: 72px; height: 48px; flex: none;
+  border: 1px solid var(--border-strong); border-radius: 6px;
+  background: var(--bg-panel);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.ts-img-thumb img { width: 100%; height: 100%; object-fit: cover; display: none; }
+.ts-img-thumb span { font-size: 11px; color: var(--text-faint); }
+.ts-img-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ts-img-controls { margin-top: 4px; }

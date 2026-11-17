@@ -4,6 +4,7 @@ import * as ipc from './ipc.js';
 import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
 import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
 import { PRESETS, CANVASES, getPreset } from './theme-presets.js';
+import { loadAndCompressImage } from './image-tools.js';
 
 const SCHEMES = [
   { id: 'ink', color: '#2f6feb' },
@@ -472,6 +473,135 @@ export function createSettings({ body, onApply }) {
     }, (v) => { theme.canvasStrength = v; update(); }));
     strengthRow.appendChild(strengthCtrl);
     body.appendChild(strengthRow);
+
+    // 2b) 背景图片
+    const imgLabel = document.createElement('div');
+    imgLabel.className = 'set-desc';
+    imgLabel.style.marginTop = '10px';
+    imgLabel.textContent = '背景图片';
+    body.appendChild(imgLabel);
+
+    const imgBox = document.createElement('div');
+    imgBox.className = 'ts-img-box';
+    const thumb = document.createElement('div');
+    thumb.className = 'ts-img-thumb';
+    const thumbImg = document.createElement('img');
+    thumbImg.alt = '';
+    const thumbEmpty = document.createElement('span');
+    thumbEmpty.textContent = '无图片';
+    thumb.appendChild(thumbImg);
+    thumb.appendChild(thumbEmpty);
+    const imgInfo = document.createElement('div');
+    imgInfo.className = 'ts-img-info';
+    const pickBtn = document.createElement('button');
+    pickBtn.className = 'btn ghost';
+    pickBtn.textContent = '选择图片';
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'mini-btn';
+    clearBtn.textContent = '清除';
+    const imgMsg = document.createElement('div');
+    imgMsg.className = 'cs-save-msg';
+
+    const syncImageThumb = () => {
+      if (theme.backgroundImage) {
+        thumbImg.src = theme.backgroundImage;
+        thumbImg.style.display = '';
+        thumbEmpty.style.display = 'none';
+        clearBtn.disabled = false;
+      } else {
+        thumbImg.removeAttribute('src');
+        thumbImg.style.display = 'none';
+        thumbEmpty.style.display = '';
+        clearBtn.disabled = true;
+      }
+    };
+
+    pickBtn.addEventListener('click', async () => {
+      imgMsg.textContent = '';
+      try {
+        const files = await ipc.pickAnyFiles();
+        const file = files[0];
+        if (!file) return;
+        imgMsg.className = 'cs-save-msg';
+        imgMsg.textContent = '正在处理图片…';
+        pickBtn.disabled = true;
+        const result = await loadAndCompressImage(file, ipc);
+        theme.backgroundImage = result.dataUrl;
+        update();
+        syncImageThumb();
+        syncImgControls();
+        imgMsg.className = 'cs-save-msg ok';
+        const kb = Math.round(result.bytes / 1024);
+        imgMsg.textContent = `已设置 · ${result.width}×${result.height} · 约 ${kb} KB`;
+      } catch (e) {
+        imgMsg.className = 'cs-save-msg err';
+        imgMsg.textContent = '设置失败：' + ((e && e.message) || e);
+      } finally {
+        pickBtn.disabled = false;
+      }
+    });
+    clearBtn.addEventListener('click', () => {
+      theme.backgroundImage = null;
+      update();
+      syncImageThumb();
+      syncImgControls();
+      imgMsg.className = 'cs-save-msg';
+      imgMsg.textContent = '';
+    });
+
+    imgInfo.appendChild(pickBtn);
+    imgInfo.appendChild(clearBtn);
+    imgBox.appendChild(thumb);
+    imgBox.appendChild(imgInfo);
+    body.appendChild(imgBox);
+    body.appendChild(imgMsg);
+
+    // 仅在有图片时才显示调节项
+    const imgControls = document.createElement('div');
+    imgControls.className = 'ts-img-controls';
+    const syncImgControls = () => {
+      imgControls.style.display = theme.backgroundImage ? '' : 'none';
+    };
+    const opRow = document.createElement('div');
+    opRow.className = 'set-row';
+    opRow.innerHTML = '<div class="set-label">图片透明度</div>';
+    const opCtrl = document.createElement('div');
+    opCtrl.className = 'set-control';
+    opCtrl.appendChild(slider(theme.imageOpacity, {
+      min: 0, max: 1, step: 0.05, format: (v) => Math.round(v * 100) + '%',
+    }, (v) => { theme.imageOpacity = v; update(); }));
+    opRow.appendChild(opCtrl);
+    imgControls.appendChild(opRow);
+
+    const blurRow = document.createElement('div');
+    blurRow.className = 'set-row';
+    blurRow.innerHTML = '<div class="set-label">图片模糊度</div>';
+    const blurCtrl = document.createElement('div');
+    blurCtrl.className = 'set-control';
+    blurCtrl.appendChild(slider(theme.imageBlur, {
+      min: 0, max: 20, step: 1, format: (v) => v + 'px',
+    }, (v) => { theme.imageBlur = v; update(); }));
+    blurRow.appendChild(blurCtrl);
+    imgControls.appendChild(blurRow);
+
+    const fitRow = document.createElement('div');
+    fitRow.className = 'set-row';
+    fitRow.innerHTML = '<div class="set-label">填充方式</div>';
+    const fitCtrl = document.createElement('div');
+    fitCtrl.className = 'set-control';
+    fitCtrl.appendChild(segmented(
+      [{ label: '铺满', value: 'cover' }, { label: '适应', value: 'contain' }, { label: '平铺', value: 'repeat' }],
+      theme.imageSize,
+      (v) => { theme.imageSize = v; update(); },
+      { small: true }
+    ));
+    fitRow.appendChild(fitCtrl);
+    imgControls.appendChild(fitRow);
+
+    // 把控制区插到图片信息之后（在排版微调之前）
+    body.appendChild(imgControls);
+    syncImageThumb();
+    syncImgControls();
 
     // 3) 排版微调
     const typoLabel = document.createElement('div');

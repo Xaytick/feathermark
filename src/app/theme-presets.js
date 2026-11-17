@@ -85,6 +85,7 @@ export const ED_VAR_KEYS = [
   '--ed-canvas-image', '--ed-canvas-size', '--ed-canvas-position',
   '--ed-line-height', '--ed-letter-spacing', '--ed-max-width',
   '--ed-cursor-width', '--ed-active-line',
+  '--ed-bg-image', '--ed-bg-opacity', '--ed-bg-blur', '--ed-bg-size', '--ed-bg-repeat',
 ];
 
 // 全组件换色时覆盖的 UI 变量键（这些变量原本由 data-mode/data-scheme 的 CSS 规则提供）
@@ -110,6 +111,10 @@ export const DEFAULT_THEME = {
   preset: 'ink',           // 当前预设 id
   canvas: 'solid',         // 背景画布 id
   canvasStrength: 0.5,     // 纹理强度 0..1
+  backgroundImage: null,   // 背景图 data URL（已压缩）
+  imageOpacity: 0.35,      // 图片不透明度 0..1
+  imageBlur: 0,            // 图片模糊度 0..20 px
+  imageSize: 'cover',      // cover | contain | repeat
   typography: {
     lineHeight: 1.68,      // 编辑区行高
     letterSpacing: 0,      // 编辑区字距（px）
@@ -234,5 +239,14 @@ export function themeVars(theme, mode) {
   vars['--ed-max-width'] = t.maxWidth ? `${t.maxWidth}px` : 'none';
   vars['--ed-cursor-width'] = `${t.cursorWidth}px`;
   vars['--ed-active-line'] = t.activeLine ? preset.tokens['--ed-activeline'] : 'transparent';
+
+  // 背景图片层：仅在配置了图片时输出有效值，否则 opacity=0 隐藏
+  const dataUrl = theme.backgroundImage;
+  vars['--ed-bg-image'] = dataUrl ? `url("${dataUrl}")` : 'none';
+  vars['--ed-bg-opacity'] = dataUrl ? String(Math.max(0, Math.min(1, Number(theme.imageOpacity) || 0))) : '0';
+  vars['--ed-bg-blur'] = `${Math.max(0, Math.min(20, Number(theme.imageBlur) || 0))}px`;
+  const size = theme.imageSize || 'cover';
+  vars['--ed-bg-size'] = size === 'repeat' ? 'auto' : size;
+  vars['--ed-bg-repeat'] = size === 'repeat' ? 'repeat' : 'no-repeat';
   return vars;
 }

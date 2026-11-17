@@ -11,6 +11,10 @@ export const DEFAULT_THEME = {
   preset: 'ink',
   canvas: 'solid',
   canvasStrength: 0.5,
+  backgroundImage: null,   // data URL（压缩后的背景图）
+  imageOpacity: 0.35,      // 图片不透明度 0..1
+  imageBlur: 0,            // 图片模糊度 0..20 px
+  imageSize: 'cover',       // cover | contain | repeat
   typography: { lineHeight: 1.68, letterSpacing: 0, maxWidth: 860, activeLine: true, cursorWidth: 2 },
 };
 
