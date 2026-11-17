@@ -6,13 +6,6 @@ import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from '.
 import { PRESETS, CANVASES, getPreset } from './theme-presets.js';
 import { loadAndCompressImage } from './image-tools.js';
 
-const SCHEMES = [
-  { id: 'ink', color: '#2f6feb' },
-  { id: 'forest', color: '#0f8a5f' },
-  { id: 'amber', color: '#c2620a' },
-  { id: 'violet', color: '#7c4ddb' },
-];
-
 export function createSettings({ body, onApply }) {
   let fonts = null; // 系统字体列表，首次打开时才枚举（要解析上百个字体文件头）
   let aiCfg = null;
@@ -36,14 +29,56 @@ export function createSettings({ body, onApply }) {
     return wrap;
   }
 
-  function group(title) {
+  function group(title, section) {
     const g = document.createElement('div');
     g.className = 'set-group';
+    if (section) g.dataset.section = section;
     const t = document.createElement('div');
     t.className = 'set-group-title';
     t.textContent = title;
     g.appendChild(t);
     return g;
+  }
+
+  // 左侧导航分区：id / 标题 / 说明。各分组通过 group(title, section) 归入对应分区。
+  const SECTIONS = [
+    { id: 'appearance', label: '外观', hint: '主题 · 配色' },
+    { id: 'editor', label: '编辑器', hint: '字体 · 编辑' },
+    { id: 'ai', label: 'AI', hint: '模型 · 接口' },
+    { id: 'about', label: '关于', hint: '版本 · 快捷键' },
+  ];
+
+  function buildNav() {
+    const nav = document.getElementById('settings-nav');
+    if (!nav) return;
+    nav.innerHTML = '';
+    SECTIONS.forEach((s, i) => {
+      const b = document.createElement('button');
+      b.className = 'settings-nav-item' + (i === 0 ? ' on' : '');
+      b.dataset.section = s.id;
+      b.innerHTML = `<span class="sn-label">${s.label}</span><span class="sn-hint">${s.hint}</span>`;
+      b.addEventListener('click', () => {
+        const target = body.querySelector(`.set-group[data-section='${s.id}']`);
+        if (!target) return;
+        nav.querySelectorAll('.settings-nav-item').forEach((x) => x.classList.remove('on'));
+        b.classList.add('on');
+        const y = target.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+        body.scrollTo({ top: y, behavior: 'smooth' });
+      });
+      nav.appendChild(b);
+    });
+
+    // 滚动联动：根据滚动位置高亮当前分区
+    body.onscroll = () => {
+      let current = SECTIONS[0].id;
+      const bodyTop = body.getBoundingClientRect().top;
+      body.querySelectorAll('.set-group[data-section]').forEach((g) => {
+        if (g.getBoundingClientRect().top - bodyTop <= 24) current = g.dataset.section;
+      });
+      nav.querySelectorAll('.settings-nav-item').forEach((x) => {
+        x.classList.toggle('on', x.dataset.section === current);
+      });
+    };
   }
 
   function segmented(options, value, onPick, { small = false } = {}) {
@@ -142,37 +177,83 @@ export function createSettings({ body, onApply }) {
 
 
   /* ---------------------------------------------------------- 自定义配色 */
-  // 色板：内置 4 色 + 已保存的自定义方案；点选即应用。自定义 id 以 p 开头。
-  function buildSwatches() {
-    const swatches = document.createElement('div');
-    swatches.className = 'swatches';
-    swatches.id = 'scheme-swatches';
-    const all = [
-      ...SCHEMES.map((s) => ({ id: s.id, color: s.color, title: s.id })),
-      ...listSchemes()
-        .filter((s) => s.colors && s.colors.length)
-        .map((s) => ({ id: s.id, color: s.colors[0].hex, title: s.name })),
-    ];
-    all.forEach((s) => {
-      const b = document.createElement('button');
-      b.className = 'swatch' + (prefs.scheme === s.id ? ' on' : '');
-      if (s.id.startsWith('p')) b.classList.add('swatch-custom');
-      b.style.background = s.color;
-      b.title = s.title;
-      b.dataset.scheme = s.id;
-      b.addEventListener('click', () => {
-        swatches.querySelectorAll('.swatch').forEach((x) => x.classList.remove('on'));
-        b.classList.add('on');
-        apply('scheme', s.id);
-      });
-      swatches.appendChild(b);
-    });
-    return swatches;
-  }
-
   function buildColorSchemesSection() {
     const wrap = document.createElement('div');
     wrap.className = 'color-schemes';
+
+    // 0) AI 生成配色
+    const aiBox = document.createElement('div');
+    aiBox.className = 'cs-ai-box';
+    const aiTitle = document.createElement('div');
+    aiTitle.className = 'cs-ai-title';
+    aiTitle.textContent = 'AI 生成配色';
+    const aiHint = document.createElement('div');
+    aiHint.className = 'cs-hint';
+    aiHint.textContent = '描述你想要的风格，AI 生成一组和谐配色并填入下方配色框。';
+    const aiInput = document.createElement('input');
+    aiInput.type = 'text';
+    aiInput.className = 'cs-ai-input';
+    aiInput.id = 'cs-ai-input';
+    aiInput.placeholder = '例如：温暖的秋日森林、赛博朋克霓虹、宁静的莫兰迪色';
+    aiInput.maxLength = 120;
+    const aiBtn = document.createElement('button');
+    aiBtn.className = 'btn';
+    aiBtn.textContent = '生成配色';
+    aiBtn.id = 'cs-ai-btn';
+    const aiMsg = document.createElement('div');
+    aiMsg.className = 'cs-save-msg';
+    aiMsg.id = 'cs-ai-msg';
+
+    aiBtn.addEventListener('click', async () => {
+      const prompt = aiInput.value.trim();
+      aiMsg.textContent = '';
+      if (!prompt) {
+        aiMsg.className = 'cs-save-msg err';
+        aiMsg.textContent = '请先输入配色描述';
+        aiInput.focus();
+        return;
+      }
+      aiBtn.disabled = true;
+      aiMsg.className = 'cs-save-msg';
+      aiMsg.textContent = '正在生成…';
+      try {
+        const res = await ipc.aiChat([
+          { role: 'system', content: '你是专业配色设计师。根据用户描述生成一组美观、和谐、有设计感的配色。只输出颜色本身，每行一个 hex 值（#RRGGBB），输出 5 到 8 个颜色，不要任何解释、编号、标题、markdown 或多余文字。第一行是主色，其余为辅助色，彼此协调。' },
+          { role: 'user', content: prompt },
+        ], { maxTokens: 256, temperature: 0.8 });
+        const content = String((res && res.content) || '').trim();
+        if (!content) throw new Error('AI 没有返回内容，请重试');
+        // 严格遵循配色框的格式与校验：先尝试提取 hex（忽略模型带出的多余文字），
+        // 若无 hex 则把原文交给统一解析器处理 rgb/三元组等格式。
+        const hexes = content.match(/#[\da-fA-F]{6}\b|#[\da-fA-F]{3}\b/g);
+        const result = parseColors(hexes ? hexes.join('\n') : content);
+        if (!result.colors.length) throw new Error('AI 返回的颜色无法识别，请换个描述重试');
+        input.value = result.colors.map((c) => c.hex).join('\n');
+        renderPreview(result);
+        aiMsg.className = 'cs-save-msg ok';
+        aiMsg.textContent = `已生成 ${result.colors.length} 个颜色，可在下方调整或保存`;
+        input.scrollIntoView({ block: 'nearest' });
+      } catch (e) {
+        aiMsg.className = 'cs-save-msg err';
+        const msg = (e && e.message) ? e.message : String(e);
+        aiMsg.textContent = '生成失败：' + msg;
+      } finally {
+        aiBtn.disabled = false;
+      }
+    });
+    aiInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); aiBtn.click(); }
+    });
+
+    aiBox.appendChild(aiTitle);
+    aiBox.appendChild(aiHint);
+    const aiRow = document.createElement('div');
+    aiRow.className = 'cs-ai-row';
+    aiRow.appendChild(aiInput);
+    aiRow.appendChild(aiBtn);
+    aiBox.appendChild(aiRow);
+    aiBox.appendChild(aiMsg);
+    wrap.appendChild(aiBox);
 
     // 1) 批量导入
     const hint = document.createElement('div');
@@ -282,9 +363,7 @@ export function createSettings({ body, onApply }) {
       saveMsg.textContent = `已保存「${res.scheme.name}」`;
       nameInput.value = '';
       renderSavedList();
-      // 让色板实时显示新方案并立即应用
-      const sw = document.getElementById('scheme-swatches');
-      if (sw) sw.replaceWith(buildSwatches());
+      // 立即应用新方案
       apply('scheme', res.scheme.id);
     });
     saveRow.appendChild(nameInput);
@@ -337,8 +416,6 @@ export function createSettings({ body, onApply }) {
         useBtn.disabled = prefs.scheme === s.id;
         useBtn.addEventListener('click', () => {
           apply('scheme', s.id);
-          const sw = document.getElementById('scheme-swatches');
-          if (sw) sw.replaceWith(buildSwatches());
           renderSavedList();
         });
 
@@ -349,8 +426,6 @@ export function createSettings({ body, onApply }) {
           deleteScheme(s.id);
           if (prefs.scheme === s.id) apply('scheme', 'ink');
           renderSavedList();
-          const sw = document.getElementById('scheme-swatches');
-          if (sw) sw.replaceWith(buildSwatches());
         });
 
         rowEl.appendChild(dots);
@@ -886,7 +961,7 @@ export function createSettings({ body, onApply }) {
     body.innerHTML = '';
 
     /* ---------------------------------------------------------- 外观 */
-    const g1 = group('外观');
+    const g1 = group('外观', 'appearance');
     g1.appendChild(
       row(
         '主题',
@@ -903,8 +978,6 @@ export function createSettings({ body, onApply }) {
       )
     );
 
-    const swatches = buildSwatches();
-    g1.appendChild(row('配色', '只换强调色，明暗基调由主题决定', swatches));
     g1.appendChild(
       row(
         '默认分屏',
@@ -922,17 +995,17 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g1);
 
     /* ---------------------------------------------------------- Theme Studio */
-    const gStudio = group('主题工作台');
+    const gStudio = group('主题工作台', 'appearance');
     gStudio.appendChild(buildThemeStudioSection());
     body.appendChild(gStudio);
 
     /* ---------------------------------------------------------- 自定义配色 */
-    const gColor = group('自定义配色');
+    const gColor = group('自定义配色', 'appearance');
     gColor.appendChild(buildColorSchemesSection());
     body.appendChild(gColor);
 
     /* ---------------------------------------------------------- 字体 */
-    const g2 = group('字体');
+    const g2 = group('字体', 'editor');
     g2.appendChild(row('编辑器字体', '', fontSelect(prefs.editorFont, (v) => apply('editorFont', v))));
     g2.appendChild(
       row('编辑器字号', '', numberInput(prefs.editorSize, { min: 11, max: 28 }, (v) => apply('editorSize', v)))
@@ -948,7 +1021,7 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g2);
 
     /* ---------------------------------------------------------- 编辑 */
-    const g3 = group('编辑');
+    const g3 = group('编辑', 'editor');
     g3.appendChild(
       row(
         '自动换行',
@@ -974,12 +1047,12 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g3);
 
     /* ---------------------------------------------------------- AI */
-    const gAi = group('AI 模型与接口');
+    const gAi = group('AI 模型与接口', 'ai');
     gAi.appendChild(buildAiSection());
     body.appendChild(gAi);
 
     /* ---------------------------------------------------------- 关于 */
-    const g4 = group('关于');
+    const g4 = group('关于', 'about');
     const about = document.createElement('div');
     about.className = 'about-block';
     about.innerHTML = `
@@ -998,6 +1071,8 @@ export function createSettings({ body, onApply }) {
         ipc.openPath('https://github.com/tizuio/TizuMark-Markdown-Editor').catch(() => {});
       });
     }
+
+    buildNav();
   }
 
   async function loadFontsOnce() {
