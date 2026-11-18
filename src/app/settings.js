@@ -217,10 +217,29 @@ export function createSettings({ body, onApply }) {
       aiMsg.className = 'cs-save-msg';
       aiMsg.textContent = '正在生成…';
       try {
-        const res = await ipc.aiChat([
-          { role: 'system', content: '你是专业配色设计师。根据用户描述生成一组美观、和谐、有设计感的配色。只输出颜色本身，每行一个 hex 值（#RRGGBB），输出 5 到 8 个颜色，不要任何解释、编号、标题、markdown 或多余文字。第一行是主色，其余为辅助色，彼此协调。' },
+        // 推理模型会把 token 先用在 reasoning_content 上，预算太小会导致正文被截断成空。
+        // 用用户配置的 max_tokens 作基础（至少 1024），失败且确属「空正文」时加大一档重试。
+        let cfg = {};
+        try { cfg = await ipc.aiConfigGet() || {}; } catch (_) {}
+        const base = Math.max(1024, Number(cfg.max_tokens) || 0);
+        const messages = [
+          { role: 'system', content: '你是专业配色设计师。根据用户描述生成一组美观、和谐、有设计感的配色。直接输出结果，不要输出思考过程、推理内容或任何分析。只输出颜色本身，每行一个 hex 值（#RRGGBB），输出 5 到 8 个颜色，不要任何解释、编号、标题、markdown 或多余文字。第一行是主色，其余为辅助色，彼此协调。' },
           { role: 'user', content: prompt },
-        ], { maxTokens: 256, temperature: 0.8 });
+        ];
+        let res = null;
+        let lastErr = null;
+        for (const budget of [base, Math.max(base * 2, 4096)]) {
+          try {
+            res = await ipc.aiChat(messages, { maxTokens: budget });
+            break;
+          } catch (e) {
+            const msg = (e && e.message) ? e.message : String(e);
+            // 仅「正文为空/被截断」值得加大预算重试；鉴权/网络/配置错误直接抛出
+            if (!/模型没有返回内容|max_tokens|reasoning_content|截断/.test(msg)) throw e;
+            lastErr = e;
+          }
+        }
+        if (!res) throw lastErr || new Error('AI 没有返回内容，请重试');
         const content = String((res && res.content) || '').trim();
         if (!content) throw new Error('AI 没有返回内容，请重试');
         // 严格遵循配色框的格式与校验：先尝试提取 hex（忽略模型带出的多余文字），
