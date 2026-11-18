@@ -159,37 +159,50 @@ export function luminance(hex) {
 export function tokensFromColors(colors, tone) {
   const list = (colors || []).map((c) => (typeof c === 'string' ? c : c && c.hex)).filter(Boolean);
   if (!list.length) return null;
-  const accent = list[0].toUpperCase();
+  const hex = (i, fb) => (list[i] || fb).toUpperCase();
+  const accent = hex(0, '#5C92F7');
   const dark = tone ? tone === 'dark' : luminance(accent) < 128;
-  const pick = (i, fallback) => (list[i] || fallback).toUpperCase();
-  const nb = (i, fbDark, fbLight) => pick(i, dark ? fbDark : fbLight);
-  const base = dark
-    ? { bg: '#191C22', fg: '#E4E8EF', muted: '#9AA5B5', faint: '#7B8493', border: '#2B313B', quoteBg: '#1C2027', codeBg: '#21262E', codeBorder: '#2E3540' }
-    : { bg: '#FCFCFA', fg: '#2E3440', muted: '#6B7280', faint: '#9AA1AC', border: '#E5E7EB', quoteBg: '#F5F6F9', codeBg: '#F3F4F7', codeBorder: '#E5E8EE' };
+
+  // 让主色「染」到整个色板：画布/面板/边框都从主色派生，
+  // 而不是写死中性灰，这样生成的配色会体现在标题栏、侧栏、状态栏等全部组件上。
+  const deep = dark ? '#080A0C' : '#FFFFFF';   // 极暗/极亮基底
+  const ink = dark ? '#E8ECF2' : '#202634';    // 正文色基底
+  const bg = mixHex(deep, accent, dark ? 0.13 : 0.055);
+  const fg = mixHex(ink, accent, dark ? 0.05 : 0.04);
+  const border = mixHex(bg, accent, dark ? 0.22 : 0.18);
+  const quoteBg = mixHex(bg, accent, dark ? 0.10 : 0.055);
+  const codeBg = mixHex(bg, accent, dark ? 0.13 : 0.07);
+  const codeBorder = mixHex(border, accent, 0.14);
+
+  const muted = mixHex(fg, accent, dark ? 0.26 : 0.24);
+  const faint = mixHex(fg, accent, dark ? 0.44 : 0.42);
+
+  // 语法高亮：优先用生成的颜色（第 2~7 个），不足时从主色派生协调色
+  const pick = (i, fbDark, fbLight) => hex(i, dark ? fbDark : fbLight);
   return {
-    '--ed-bg': base.bg,
-    '--ed-fg': base.fg,
-    '--ed-fg-muted': base.muted,
-    '--ed-fg-faint': base.faint,
+    '--ed-bg': bg,
+    '--ed-fg': fg,
+    '--ed-fg-muted': muted,
+    '--ed-fg-faint': faint,
     '--ed-accent': accent,
     '--ed-selection': rgba(accent, dark ? 0.24 : 0.16),
     '--ed-cursor': accent,
-    '--ed-activeline': rgba(base.fg, dark ? 0.055 : 0.045),
-    '--ed-border': base.border,
-    '--ed-quote-bg': base.quoteBg,
-    '--ed-code-bg': base.codeBg,
-    '--ed-code-border': base.codeBorder,
-    '--ed-h': base.fg,
-    '--ed-strong': base.fg,
-    '--ed-em': base.fg,
+    '--ed-activeline': rgba(accent, dark ? 0.08 : 0.055),
+    '--ed-border': border,
+    '--ed-quote-bg': quoteBg,
+    '--ed-code-bg': codeBg,
+    '--ed-code-border': codeBorder,
+    '--ed-h': mixHex(fg, accent, 0.16),
+    '--ed-strong': fg,
+    '--ed-em': fg,
     '--ed-link': accent,
-    '--ed-quote': base.muted,
-    '--ed-string': nb(1, '#E0A75F', '#B45309'),
-    '--ed-keyword': nb(2, '#B79BF5', '#7C3AED'),
-    '--ed-number': nb(3, '#6CD3A5', '#0F8A5F'),
-    '--ed-tag': nb(4, '#6CD3A5', '#0F8A5F'),
-    '--ed-attribute': nb(5, '#E0A75F', '#B45309'),
-    '--ed-type': nb(6, '#B79BF5', '#7C3AED'),
+    '--ed-quote': muted,
+    '--ed-string': pick(1, '#E0A75F', '#B45309'),
+    '--ed-keyword': pick(2, '#B79BF5', '#7C3AED'),
+    '--ed-number': pick(3, '#6CD3A5', '#0F8A5F'),
+    '--ed-tag': pick(4, '#6CD3A5', '#0F8A5F'),
+    '--ed-attribute': pick(5, '#E0A75F', '#B45309'),
+    '--ed-type': pick(6, '#B79BF5', '#7C3AED'),
   };
 }
 
