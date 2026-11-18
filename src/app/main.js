@@ -8,7 +8,7 @@ import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
 import { getScheme } from './color-schemes.js';
 import { themeVars, getPreset, tokensFromColors, resolveParams, luminance, PRESETS } from './theme-presets.js';
 import { createEditor } from './editor.js';
-import { createPreview, dirname } from './preview.js';
+import { createPreview, dirname, resolvePath } from './preview.js';
 import { createTabs } from './tabs.js';
 import { createTree } from './tree.js';
 import { createSearch } from './search.js';
@@ -124,6 +124,8 @@ function applyLayout() {
   if (editor) {
     editor.setWrap(prefs.lineWrap);
     editor.setLineNumbers(prefs.lineNumbers);
+    // 预览模式下编辑器变成「所见即所得」视图：直接可编辑，隐藏 Markdown 标记
+    editor.setLivePreview(prefs.viewMode === 'preview');
   }
   // 分屏切换后 CM 尺寸变了，必须刷新，否则光标定位会漂
   setTimeout(() => editor && editor.refresh(), 30);
@@ -171,6 +173,7 @@ async function activateTab(id, { line = 0 } = {}) {
   editor.find.clear();
   editor.setDocument(tab.doc, tab.cursor);
   editor.setModeForPath(tab.path || 'untitled.md');
+  editor.redecorate();
   renderTabs();
   updateStatusbar();
   tree.setActive(tab.path);
@@ -833,6 +836,14 @@ async function boot() {
     onCursor: updateCursor,
     onScroll: onEditorScroll,
     onImage: handleImageInsert,
+  });
+
+  // 即时渲染里内嵌图片：把 Markdown 里的相对路径解析成本地文件，交给 Tauri 的 asset 协议加载
+  editor.setResolveImage((src) => {
+    if (/^(https?:|data:|asset:|blob:)/i.test(src)) return src;
+    const tab = activeTab();
+    const base = tab && tab.path ? dirname(tab.path) : '';
+    return ipc.convertFileSrc(resolvePath(base, src));
   });
 
   // 预览

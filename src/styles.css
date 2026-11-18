@@ -459,7 +459,8 @@ html[data-os='macos'] #titlebar::before {
 }
 #workspace.mode-editor #preview-pane,
 #workspace.mode-editor #splitter-main { display: none; }
-#workspace.mode-preview #editor-pane,
+/* 预览模式 = 所见即所得编辑：显示编辑器（带即时渲染），隐藏独立预览区 */
+#workspace.mode-preview #preview-pane,
 #workspace.mode-preview #splitter-main { display: none; }
 #workspace.dir-v { flex-direction: column; }
 #workspace.dir-v .splitter.horizontal { width: auto; height: 5px; cursor: row-resize; }
@@ -471,8 +472,7 @@ html[data-os='macos'] #titlebar::before {
   flex-direction: column;
   position: relative;
 }
-#workspace.mode-preview #editor-pane { display: none; }
-#workspace.mode-editor #editor-pane { width: 100%; }
+#workspace.mode-preview #editor-pane { width: 100%; }
 #workspace.dir-v #editor-pane { height: var(--split); width: 100%; }
 /* 没有打开任何文档时：隐藏预览与分隔条，空状态占满工作区 */
 #workspace.no-doc #preview-pane,
@@ -2090,3 +2090,94 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 }
 .ts-preset-wrap:hover .ts-preset-del { display: grid; }
 .ts-preset-del:hover { color: #e5484d; }
+
+/* ==================================================================
+   即时渲染（Typora 式预览编辑）：CodeMirror 5 装饰层
+   源码仍是唯一真相；markText 贴样式、隐藏标记，replacedWith 内嵌图片。
+   光标行完整显示标记（可精确修改），其余行标记弱化到几乎不可见。
+   ================================================================== */
+.cm-lp-on .CodeMirror { padding: 18px 0 40vh; }
+.cm-lp-on .CodeMirror-line { padding-left: 18px; }
+
+/* 标记符号：平时几乎透明，仅保留占位宽度以免光标偏移 */
+.cm-lp-mark { opacity: 0.16; transition: opacity 120ms ease; }
+.cm-lp-on .CodeMirror-activeline .cm-lp-mark,
+.cm-lp-on .cm-lp-mark:hover { opacity: 0.72; }
+
+/* 标题分级 */
+.cm-lp-h1, .cm-lp-h2, .cm-lp-h3, .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.cm-lp-h1 { font-size: 1.58em; line-height: 1.45; color: var(--ed-h1, var(--ed-h)); }
+.cm-lp-h2 { font-size: 1.34em; line-height: 1.5; color: var(--ed-h2, var(--ed-h)); }
+.cm-lp-h3 { font-size: 1.15em; color: var(--ed-h3, var(--ed-h)); }
+.cm-lp-h4 { font-size: 1.06em; color: var(--ed-h4, var(--ed-h)); }
+.cm-lp-h5 { font-size: 1em; color: var(--ed-h5, var(--ed-h)); }
+.cm-lp-h6 { font-size: 0.96em; color: var(--ed-h6, var(--ed-fg-faint)); }
+
+/* 行内语法 */
+.cm-lp-strong { font-weight: 700; color: var(--ed-strong, inherit); }
+.cm-lp-em { font-style: italic; color: var(--ed-em, inherit); }
+.cm-lp-del { text-decoration: line-through; opacity: 0.7; }
+.cm-lp-code {
+  background: var(--ed-code-bg);
+  border: 1px solid var(--ed-code-border);
+  border-radius: 4px;
+  padding: 1px 3px;
+  color: var(--ed-code-fg, var(--ed-fg));
+  font-family: var(--code-font);
+}
+.cm-lp-link { color: var(--ed-link); text-decoration: underline; text-underline-offset: 2px; }
+.cm-lp-imgsrc { color: var(--ed-fg-faint); font-size: 0.92em; }
+
+/* 块级 */
+.cm-lp-quote {
+  border-left: 3px solid var(--ed-accent);
+  background: var(--ed-quote-bg);
+  color: var(--ed-quote, var(--ed-fg-muted));
+}
+.cm-lp-codeblock {
+  background: var(--ed-code-bg);
+  font-family: var(--code-font);
+  color: var(--ed-fg);
+}
+.cm-lp-fence { color: var(--ed-fg-faint); opacity: 0.55; font-size: 0.9em; }
+.cm-lp-hr {
+  color: transparent;
+  position: relative;
+}
+.cm-lp-hr::after {
+  content: '';
+  position: absolute;
+  left: 6%; right: 6%; top: 50%;
+  border-top: 1px solid var(--ed-border);
+}
+.cm-lp-list { /* 列表行整体略缩进感 */ }
+
+/* 内嵌图片 */
+.cm-lp-img {
+  display: inline-flex;
+  vertical-align: middle;
+  max-width: 100%;
+}
+.cm-lp-img img {
+  max-height: 260px;
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--ed-border);
+  object-fit: contain;
+  cursor: default;
+}
+.cm-lp-img.err { color: var(--ed-fg-faint); font-size: 0.9em; }
+
+/* 分割线：整行一条细线（replacedWith widget） */
+.cm-lp-hr-line {
+  display: inline-block;
+  width: 100%;
+  border-top: 1px solid var(--ed-border);
+  vertical-align: middle;
+  opacity: 0.9;
+}
+/* 列表符号稍清晰些，便于识别结构 */
+.cm-lp-list .cm-lp-mark { opacity: 0.42; }
