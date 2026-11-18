@@ -34,12 +34,14 @@ OUT="$ROOT/FeatherMark-${TAG}-windows-x64"
 DIST="$(mktemp -d)/FeatherMark"
 mkdir -p "$DIST"
 cp "$EXE" "$DIST/"
+cp "$ROOT/scripts/feathermark.manifest" "$DIST/feathermark.exe.manifest"
 cat > "$DIST/README.txt" <<TXT
 FeatherMark 便携版 (Windows x86-64, $TAG)
 
 运行：双击 feathermark.exe，无需安装。
 系统要求：Windows 10/11 64 位 + Edge WebView2（Win11 及多数 Win10 已预装）。
 说明：绿色便携版，配置存于用户目录；交叉编译未嵌入应用图标，功能不受影响。
+      feathermark.exe.manifest 为外部清单兜底，请与 exe 保持同目录。
 TXT
 cd "$(dirname "$DIST")" && zip -qr "$OUT.zip" FeatherMark
 rm -rf "$SHIM"

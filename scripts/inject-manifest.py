@@ -64,14 +64,17 @@ def inject(exe_path, manifest_path):
         va = max(va, align(sec_va + max(sec_vsize, sec_raww), 0x1000))
 
     data += b'\x00' * (raw_off - len(data))
-    data += rsrc
+    raw_size = align(len(rsrc), file_align)
+    # CRITICAL: must actually write the aligned bytes, not just declare SizeOfRawData.
+    # Otherwise the loader reads past EOF and Windows rejects the exe ("can't run on your PC").
+    data += bytes(rsrc) + b'\x00' * (raw_size - len(rsrc))
 
     # New section header
     sh = bytearray(40)
     sh[0:8] = b'.rsrc\x00\x00\x00'
     struct.pack_into('<I', sh, 8, len(rsrc))       # VirtualSize
     struct.pack_into('<I', sh, 12, va)             # VirtualAddress
-    struct.pack_into('<I', sh, 16, align(len(rsrc), file_align))  # SizeOfRawData
+    struct.pack_into('<I', sh, 16, raw_size)       # SizeOfRawData (matches bytes written)
     struct.pack_into('<I', sh, 20, raw_off)        # PointerToRawData
     struct.pack_into('<I', sh, 36, 0x40000040)     # INITIALIZED_DATA | READ
     # Write section header into (previously unused) header slot
@@ -81,6 +84,13 @@ def inject(exe_path, manifest_path):
     # Update SizeOfImage in optional header (offset 56 for both PE32 and PE32+)
     size_image = struct.unpack_from('<I', data, opt + 56)[0]
     struct.pack_into('<I', data, opt + 56, align(size_image + len(rsrc), 0x1000))
+
+    # CRITICAL: set Data Directory[2] = Resource Directory (RVA, Size).
+    # Without this the loader sees a .rsrc section but an empty resource directory,
+    # so RT_MANIFEST is never found (and the exe can appear invalid on strict Windows).
+    # PE32+/PE32 data directory starts at opt+112; entry 2 is at +2*8.
+    dd_res = opt + 112 + 2 * 8
+    struct.pack_into('<II', data, dd_res, va, len(rsrc))
 
     open(exe_path, 'wb').write(data)
     print('manifest: injected RT_MANIFEST (%d bytes) at 0x%x' % (len(rsrc), raw_off))

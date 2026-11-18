@@ -157,7 +157,9 @@ cargo install cargo-xwin --locked
 ./scripts/build-windows.sh   # 自动补齐链接器 shim、编译、打包成 FeatherMark-<tag>-windows-x64.zip
 ```
 
-macOS 缺少 llvm-rc，脚本用 `scripts/fake-windres.py` 代替（生成的 exe **未嵌入应用图标**，功能完整）。
+macOS 缺少 llvm-rc，脚本用 `scripts/fake-windres.py` 代替，再由 `scripts/inject-manifest.py`
+把 Common Controls v6 manifest 注入 exe（修复 TaskDialogIndirect 报错）；包内另附同名 `.manifest` 兜底。
+生成的 exe **未嵌入应用图标**，功能完整。
 运行环境需要 Windows 10/11 64 位 + Edge WebView2（多数系统已预装）。
 
 目录结构：
