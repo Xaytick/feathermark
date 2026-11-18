@@ -1878,6 +1878,12 @@ html[data-theme-studio] .CodeMirror-foldgutter-folded::after { color: var(--ed-f
 html[data-theme-studio] .CodeMirror-matchingbracket { color: var(--ed-accent) !important; border-bottom-color: var(--ed-accent); }
 
 /* 源码里的 Markdown 标记语法高亮 */
+html[data-theme-studio] .cm-s-default .cm-header-1 { color: var(--ed-h1, var(--ed-h)); }
+html[data-theme-studio] .cm-s-default .cm-header-2 { color: var(--ed-h2, var(--ed-h)); }
+html[data-theme-studio] .cm-s-default .cm-header-3 { color: var(--ed-h3, var(--ed-h)); }
+html[data-theme-studio] .cm-s-default .cm-header-4 { color: var(--ed-h4, var(--ed-h)); }
+html[data-theme-studio] .cm-s-default .cm-header-5 { color: var(--ed-h5, var(--ed-h)); }
+html[data-theme-studio] .cm-s-default .cm-header-6 { color: var(--ed-h6, var(--ed-fg-faint)); }
 html[data-theme-studio] .cm-s-default .cm-header { color: var(--ed-h); }
 html[data-theme-studio] .cm-s-default .cm-formatting-header { color: var(--ed-accent); }
 html[data-theme-studio] .cm-s-default .cm-strong { color: var(--ed-strong); }
@@ -1892,10 +1898,14 @@ html[data-theme-studio] .cm-s-default .cm-string { color: var(--ed-string); }
 html[data-theme-studio] .cm-s-default .cm-keyword { color: var(--ed-keyword); }
 html[data-theme-studio] .cm-s-default .cm-number { color: var(--ed-number); }
 html[data-theme-studio] .cm-s-default .cm-variable-2,
-html[data-theme-studio] .cm-s-default .cm-def { color: var(--ed-fg); }
+html[data-theme-studio] .cm-s-default .cm-def { color: var(--ed-variable, var(--ed-fg)); }
+html[data-theme-studio] .cm-s-default .cm-operator { color: var(--ed-operator, var(--ed-fg-muted)); }
+html[data-theme-studio] .cm-s-default .cm-builtin { color: var(--ed-builtin, var(--ed-link)); }
+html[data-theme-studio] .cm-s-default .cm-property { color: var(--ed-property, var(--ed-attribute)); }
+html[data-theme-studio] .cm-s-default .cm-meta { color: var(--ed-meta, var(--ed-fg-muted)); }
 html[data-theme-studio] .cm-s-default .cm-tag { color: var(--ed-tag); }
 html[data-theme-studio] .cm-s-default .cm-attribute { color: var(--ed-attribute); }
-html[data-theme-studio] .cm-s-default .cm-hr { color: var(--ed-fg-faint); }
+html[data-theme-studio] .cm-s-default .cm-hr { color: var(--ed-meta, var(--ed-fg-faint)); }
 html[data-theme-studio] .cm-s-default .cm-variable-3,
 html[data-theme-studio] .cm-s-default .cm-type { color: var(--ed-type); }
 
@@ -1907,19 +1917,20 @@ html[data-theme-studio] .markdown-body {
   max-width: var(--ed-max-width);
 }
 html[data-theme-studio] #preview { max-width: var(--ed-max-width); }
-html[data-theme-studio] .markdown-body h1,
-html[data-theme-studio] .markdown-body h2,
-html[data-theme-studio] .markdown-body h3,
-html[data-theme-studio] .markdown-body h4,
-html[data-theme-studio] .markdown-body h5,
-html[data-theme-studio] .markdown-body h6 { color: var(--ed-h); }
+html[data-theme-studio] .markdown-body h1 { color: var(--ed-h1, var(--ed-h)); }
+html[data-theme-studio] .markdown-body h2 { color: var(--ed-h2, var(--ed-h)); }
+html[data-theme-studio] .markdown-body h3 { color: var(--ed-h3, var(--ed-h)); }
+html[data-theme-studio] .markdown-body h4 { color: var(--ed-h4, var(--ed-h)); }
+html[data-theme-studio] .markdown-body h5 { color: var(--ed-h5, var(--ed-h)); }
+html[data-theme-studio] .markdown-body h6 { color: var(--ed-h6, var(--ed-fg-faint)); }
 html[data-theme-studio] .markdown-body h1,
 html[data-theme-studio] .markdown-body h2 { border-bottom-color: var(--ed-border); }
 html[data-theme-studio] .markdown-body hr { border-top-color: var(--ed-border); }
 html[data-theme-studio] .markdown-body a { color: var(--ed-link); border-bottom-color: var(--ed-selection); }
 html[data-theme-studio] .markdown-body a:hover { border-bottom-color: var(--ed-link); }
+html[data-theme-studio] .markdown-body strong { color: var(--ed-strong, inherit); }
+html[data-theme-studio] .markdown-body em { color: var(--ed-em, inherit); }
 html[data-theme-studio] .markdown-body del,
-html[data-theme-studio] .markdown-body h6,
 html[data-theme-studio] .markdown-body li::marker { color: var(--ed-fg-faint); }
 html[data-theme-studio] .markdown-body blockquote {
   color: var(--ed-quote);
@@ -1929,6 +1940,7 @@ html[data-theme-studio] .markdown-body blockquote {
 html[data-theme-studio] .markdown-body code {
   background: var(--ed-code-bg);
   border-color: var(--ed-code-border);
+  color: var(--ed-code-fg, inherit);
 }
 html[data-theme-studio] .markdown-body pre {
   background: var(--ed-code-bg);
@@ -1963,11 +1975,17 @@ html[data-theme-studio] .markdown-body pre code .hljs-attr,
 html[data-theme-studio] .markdown-body pre code .hljs-attribute,
 html[data-theme-studio] .markdown-body pre code .hljs-property { color: var(--ed-attribute); }
 html[data-theme-studio] .markdown-body pre code .hljs-comment,
-html[data-theme-studio] .markdown-body pre code .hljs-quote { color: var(--ed-fg-muted); }
+html[data-theme-studio] .markdown-body pre code .hljs-quote,
+html[data-theme-studio] .markdown-body pre code .hljs-meta { color: var(--ed-meta, var(--ed-fg-muted)); }
 html[data-theme-studio] .markdown-body pre code .hljs-link,
-html[data-theme-studio] .markdown-body pre code .hljs-built_in { color: var(--ed-link); }
+html[data-theme-studio] .markdown-body pre code .hljs-built_in { color: var(--ed-builtin, var(--ed-link)); }
 html[data-theme-studio] .markdown-body pre code .hljs-variable,
-html[data-theme-studio] .markdown-body pre code .hljs-params { color: var(--ed-type); }
+html[data-theme-studio] .markdown-body pre code .hljs-params { color: var(--ed-variable, var(--ed-type)); }
+html[data-theme-studio] .markdown-body pre code .hljs-operator,
+html[data-theme-studio] .markdown-body pre code .hljs-punctuation { color: var(--ed-operator, var(--ed-fg-muted)); }
+html[data-theme-studio] .markdown-body pre code .hljs-property,
+html[data-theme-studio] .markdown-body pre code .hljs-selector-class,
+html[data-theme-studio] .markdown-body pre code .hljs-selector-id { color: var(--ed-property, var(--ed-attribute)); }
 
 /* ==================================================================
    Theme Studio 设置面板控件

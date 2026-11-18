@@ -426,7 +426,7 @@ export function createSettings({ body, onApply }) {
       sw.style.borderColor = t.tokens['--ed-border'] || '#ccc';
       const bar = document.createElement('div');
       bar.className = 'ts-preset-bar';
-      ['--ed-fg', '--ed-accent', '--ed-string'].forEach((k) => {
+      ['--ed-fg', '--ed-accent', '--ed-string', '--ed-keyword', '--ed-number'].forEach((k) => {
         const seg = document.createElement('span');
         seg.style.background = t.tokens[k] || '#999';
         bar.appendChild(seg);

@@ -86,6 +86,9 @@ export const ED_VAR_KEYS = [
   '--ed-line-height', '--ed-letter-spacing', '--ed-max-width',
   '--ed-cursor-width', '--ed-active-line',
   '--ed-bg-image', '--ed-bg-opacity', '--ed-bg-blur', '--ed-bg-size', '--ed-bg-repeat',
+  // 扩展槽位：仅自定义主题会写入，内置预设通过 CSS fallback 继承 --ed-h / --ed-keyword 等
+  '--ed-h1', '--ed-h2', '--ed-h3', '--ed-h4', '--ed-h5', '--ed-h6',
+  '--ed-code-fg', '--ed-builtin', '--ed-variable', '--ed-operator', '--ed-meta', '--ed-property',
 ];
 
 // 全组件换色时覆盖的 UI 变量键（这些变量原本由 data-mode/data-scheme 的 CSS 规则提供）
@@ -156,6 +159,17 @@ export function luminance(hex) {
  * 驱动整个界面。取第一个颜色为主色，其余依次作为语法高亮色；明暗由
  * 第一个颜色的相对亮度自动判断（可在调用处覆盖 tone）。
  */
+/**
+ * 把颜色校正到当前主题的可读范围：深色主题下提亮过暗色，浅色主题下压暗过亮色，
+ * 避免生成的颜色用作正文/标题/语法色时糊在同色背景里。
+ */
+function readable(hex, dark) {
+  const lum = luminance(hex);
+  if (dark && lum < 96) return mixHex(hex, '#FFFFFF', 0.42);
+  if (!dark && lum > 172) return mixHex(hex, '#000000', 0.34);
+  return hex;
+}
+
 export function tokensFromColors(colors, tone) {
   const list = (colors || []).map((c) => (typeof c === 'string' ? c : c && c.hex)).filter(Boolean);
   if (!list.length) return null;
@@ -177,8 +191,20 @@ export function tokensFromColors(colors, tone) {
   const muted = mixHex(fg, accent, dark ? 0.26 : 0.24);
   const faint = mixHex(fg, accent, dark ? 0.44 : 0.42);
 
-  // 语法高亮：优先用生成的颜色（第 2~7 个），不足时从主色派生协调色
-  const pick = (i, fbDark, fbLight) => hex(i, dark ? fbDark : fbLight);
+  // 取色：按序使用生成颜色，做可读性校正；不足时回落到主色派生。
+  // 颜色数量多于槽位时按序取用，少于槽位时循环复用（mod），让每个生成色都尽量出现。
+  const n = list.length;
+  const pick = (i, fbDark, fbLight) => {
+    const v = i < n ? list[i] : (n > 1 ? list[1 + (i % (n - 1))] : (dark ? fbDark : fbLight));
+    return readable((v || (dark ? fbDark : fbLight)).toUpperCase(), dark);
+  };
+  // 标题分级：h1 用主色，h2~h6 依次用后续生成色（不足时回落到主色→前景渐变）
+  const heading = (i) => {
+    if (i === 1) return accent;
+    if (i - 1 < n) return readable(hex(i - 1, accent), dark);
+    return mixHex(fg, accent, 0.5 - (i - n) * 0.08);
+  };
+
   return {
     '--ed-bg': bg,
     '--ed-fg': fg,
@@ -192,17 +218,32 @@ export function tokensFromColors(colors, tone) {
     '--ed-quote-bg': quoteBg,
     '--ed-code-bg': codeBg,
     '--ed-code-border': codeBorder,
-    '--ed-h': mixHex(fg, accent, 0.16),
-    '--ed-strong': fg,
-    '--ed-em': fg,
+    // 标题分级（h1~h6 各自取色，颜色够时各不相同）
+    '--ed-h': heading(1),
+    '--ed-h1': heading(1),
+    '--ed-h2': heading(2),
+    '--ed-h3': heading(3),
+    '--ed-h4': heading(4),
+    '--ed-h5': heading(5),
+    '--ed-h6': heading(6),
+    '--ed-strong': pick(n > 1 ? 1 : 0, '#FFFFFF', '#111827'),
+    '--ed-em': pick(n > 2 ? 2 : 0, '#E4E8EF', '#374151'),
     '--ed-link': accent,
     '--ed-quote': muted,
+    // 行内代码文字色：用生成色中较显眼的一个
+    '--ed-code-fg': pick(n > 3 ? 3 : 1, '#E0A75F', '#B45309'),
+    // 语法高亮槽位（比原来多出 builtin/variable/operator/meta/property）
     '--ed-string': pick(1, '#E0A75F', '#B45309'),
     '--ed-keyword': pick(2, '#B79BF5', '#7C3AED'),
     '--ed-number': pick(3, '#6CD3A5', '#0F8A5F'),
     '--ed-tag': pick(4, '#6CD3A5', '#0F8A5F'),
     '--ed-attribute': pick(5, '#E0A75F', '#B45309'),
     '--ed-type': pick(6, '#B79BF5', '#7C3AED'),
+    '--ed-builtin': pick(7, '#6CD3A5', '#0F8A5F'),
+    '--ed-variable': pick(n > 4 ? 4 : 2, '#E4E8EF', '#374151'),
+    '--ed-operator': pick(n > 5 ? 5 : 3, '#9AA5B5', '#4B5563'),
+    '--ed-meta': pick(n > 6 ? 6 : 4, '#9AA5B5', '#6B7280'),
+    '--ed-property': pick(n > 2 ? 2 : 1, '#B79BF5', '#7C3AED'),
   };
 }
 
