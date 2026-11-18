@@ -14,9 +14,9 @@ import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
 import { getModels, onModelsChange } from './model-list.js';
 import { parseEdits, applyEdits } from './agent.js';
+import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toSkillMarkdown, MAX_SKILLS } from './skills.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
-const SKILL_KEY = 'feathermark.agent.skills.v1';
 const MAX_TEXT_ATTACH = 4000;
 const MAX_SESSIONS = 30;
 const MAX_MESSAGES = 50;
@@ -60,44 +60,6 @@ const TEMPLATES = [
   { label: '生成大纲', prompt: '请基于当前文档生成一份简洁的大纲，并标出各章节之间的关系。' },
   { label: '找问题', prompt: '请检查当前文档，指出错别字、语病、逻辑跳跃、事实存疑和结构问题，按严重程度排序。' },
   { label: '续写下一节', prompt: '请根据当前文档的风格和结构，续写下一节内容，不要重复已有结论。' },
-];
-
-const BUILTIN_SKILLS = [
-  {
-    id: 'md-editor',
-    name: 'Markdown 编辑',
-    desc: '默认技能：理解 Markdown 结构，回答简洁，可直接给出可粘贴的正文',
-    prompt: '你是 Markdown 编辑助手。回答要简洁、可执行；需要给出正文时，直接输出可粘贴到编辑器的 Markdown。',
-    enabled: true,
-  },
-  {
-    id: 'tech-writer',
-    name: '技术写作',
-    desc: '强调准确性、术语一致和段落逻辑，适合文档与 README',
-    prompt: '以资深技术写作者身份回答：先给结论，再给依据；术语保持一致；避免空泛表述。',
-    enabled: false,
-  },
-  {
-    id: 'proofreader',
-    name: '校对纠错',
-    desc: '只关注错别字、标点、语病与格式一致性',
-    prompt: '你是严格但克制的技术校对员：只指出确定的问题，给出原文与建议改法，不重写整段。',
-    enabled: false,
-  },
-  {
-    id: 'explainer',
-    name: '代码解释',
-    desc: '把代码讲清楚，标注关键行和风险点',
-    prompt: '请解释代码意图、输入输出、关键步骤和潜在问题；涉及行号时标明行号。',
-    enabled: false,
-  },
-  {
-    id: 'outline',
-    name: '大纲规划',
-    desc: '把想法整理成层级清晰的大纲',
-    prompt: '请把内容组织成层级清晰的大纲：先给主干，再补子项；避免交叉包含。',
-    enabled: false,
-  },
 ];
 
 function load(key, fallback) {
@@ -151,7 +113,6 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let activeId = null;
   let attachments = [];
   let includeContext = true;
-  let activeSkill = null;
   let busy = false;
   let dropDepth = 0;
   let applyView = null;
@@ -162,15 +123,12 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let lastLimitToast = 0;
   let activeModel = '';
 
-  const skills = Object.assign(
-    {},
-    ...BUILTIN_SKILLS.map((s) => ({ [s.id]: s.enabled })),
-    load(SKILL_KEY, {})
-  );
+  // 持续启用的技能（chip 切换）与单次引用（斜杠命令）分开持有
+  let pinnedSkillId = null;
+  let onceSkillId = null;
   const workspace = () => getWorkspace() || '__global__';
   const sessions = () => allSessions.filter((s) => s.workspace === workspace());
   const active = () => allSessions.find((s) => s.id === activeId) || null;
-  const enabledSkills = () => BUILTIN_SKILLS.filter((s) => skills[s.id]);
 
   function enforceSessionLimits() {
     let dropped = false;
@@ -191,7 +149,6 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   function persist() {
     const dropped = enforceSessionLimits();
     save(SESSION_KEY, allSessions);
-    save(SKILL_KEY, skills);
     if (dropped && Date.now() - lastLimitToast > 4000) {
       lastLimitToast = Date.now();
       toast(`会话较多，已自动清理到 ${MAX_SESSIONS} 个会话 / 每会话 ${MAX_MESSAGES} 条消息`, { duration: 3200 });
@@ -769,7 +726,7 @@ function numberedLines(lines, startNo) {
         .filter((m) => m.status !== 'error' && m !== assistantMsg)
         .slice(-9)
         .map((m) => ({ role: m.role, content: m.content }));
-      const skill = BUILTIN_SKILLS.find((k) => k.id === activeSkill && skills[k.id]);
+      const skill = getSkill(onceSkillId || pinnedSkillId);
       const system = [
         '你是 FeatherMark 编辑器内的 Markdown 协作 Agent。回答要简洁、具体、可执行。',
         '默认使用简体中文；用户用英文提问时用英文回答。',
@@ -845,6 +802,8 @@ function numberedLines(lines, startNo) {
       }
     } finally {
       busy = false;
+      onceSkillId = null; // 斜杠命令只作用于本次请求
+      updateSkillChip();
       s.updatedAt = Date.now();
       persist();
       renderMessages();
@@ -901,41 +860,218 @@ function numberedLines(lines, startNo) {
   }
 
   function showSkills(anchor) {
+    const all = listSkills();
     const items = [];
-    for (const skill of BUILTIN_SKILLS) {
+    if (!all.length) {
+      items.push({ title: '还没有技能' });
+      items.push({ label: '导入 / 新建技能…', onClick: () => openSkillsManager() });
+      showMenu(anchor, items);
+      return;
+    }
+    items.push({ title: '技能（点选切换持续启用，或单次调用）' });
+    for (const skill of all) {
+      const pinned = pinnedSkillId === skill.id;
+      items.push({ title: `${pinned ? '● ' : '○ '}${skill.name} — ${skill.description || '无描述'}` });
       items.push({
-        title: `${skills[skill.id] ? '✓ ' : '○ '}${skill.name} — ${skill.desc}`,
-      });
-      items.push({
-        label: skills[skill.id] ? `停用 ${skill.name}` : `启用 ${skill.name}`,
+        label: pinned ? `取消启用 ${skill.name}` : `持续启用 ${skill.name}`,
         onClick: () => {
-          skills[skill.id] = !skills[skill.id];
-          if (!skills[skill.id] && activeSkill === skill.id) activeSkill = null;
-          persist();
+          pinnedSkillId = pinned ? null : skill.id;
           updateSkillChip();
-          showSkills(anchor);
+          toast(pinned ? `已停用「${skill.name}」` : `已持续启用「${skill.name}」`);
         },
       });
-      if (skills[skill.id]) {
-        items.push({ label: `调用 ${skill.name}`, onClick: () => useSkill(skill.id) });
-      }
+      items.push({ label: `仅本次调用 ${skill.name}`, onClick: () => useSkill(skill.id, true) });
       items.push({ sep: true });
     }
+    items.push({ label: '管理技能…', onClick: () => openSkillsManager() });
     showMenu(anchor, items);
   }
 
-  function useSkill(id) {
-    activeSkill = id;
+  function useSkill(id, once = false) {
+    const skill = getSkill(id);
+    if (!skill) return;
+    if (once) {
+      onceSkillId = id;
+      toast(`本次请求将使用「${skill.name}」`);
+    } else {
+      pinnedSkillId = id;
+    }
     updateSkillChip();
-    const skill = BUILTIN_SKILLS.find((s) => s.id === id);
-    if (skill && !inputEl.value.trim()) fillPrompt(`${skill.prompt}\n\n请根据当前文档上下文回答。`);
+    if (!inputEl.value.trim()) fillPrompt(`${skill.prompt}\n\n请根据当前文档上下文回答。`);
     inputEl.focus();
   }
 
   function updateSkillChip() {
-    const skill = BUILTIN_SKILLS.find((s) => s.id === activeSkill && skills[s.id]);
-    skillChip.textContent = skill ? `技能：${skill.name}` : '无技能';
+    const skill = getSkill(pinnedSkillId) || (onceSkillId ? getSkill(onceSkillId) : null);
+    const once = !pinnedSkillId && !!onceSkillId;
+    skillChip.textContent = skill ? `${once ? '本次' : '技能'}：${skill.name}` : '技能';
     skillChip.classList.toggle('on', !!skill);
+  }
+
+  // 输入框里敲 "/" 弹出技能列表，选中后带走输入框里的 "/xxx"，技能只作用于本次请求
+  function handleSlash() {
+    const all = listSkills();
+    if (!all.length) return false;
+    const val = inputEl.value;
+    const pos = inputEl.selectionStart;
+    // 只在当前光标位于行首 "/" 后、且后面没有空格时才视为斜杠命令
+    const before = val.slice(0, pos);
+    if (!/\/(^\s*)$/.test(before)) return false;
+    const items = all.map((skill) => ({
+      label: `/${skill.name}`,
+      hint: skill.description,
+      onClick: () => {
+        inputEl.value = val.slice(pos) .trimStart();
+        inputEl.setSelectionRange(0, 0);
+        useSkill(skill.id, true);
+        updateSendState();
+      },
+    }));
+    items.push({ sep: true }, { title: 'Esc 取消' });
+    showMenu(inputEl, items);
+    return true;
+  }
+
+  /* ---------------------------------------------------------------- 技能管理弹窗 */
+  const skillsDialog = $('skills-dialog');
+  const skillsListEl = $('skills-list');
+  const skillsFormEl = $('skills-editor-form');
+  const skillsEmptyEl = $('skills-editor-empty');
+  const skillNameEl = $('skill-name');
+  const skillDescEl = $('skill-desc');
+  const skillPromptEl = $('skill-prompt');
+  const skillMsgEl = $('skills-form-msg');
+  let editingSkillId = null;
+
+  function openSkillsManager() {
+    skillsDialog.classList.remove('hidden');
+    editingSkillId = null;
+    renderSkillsList();
+    showSkillEditor(null);
+  }
+
+  function closeSkillsManager() {
+    skillsDialog.classList.add('hidden');
+  }
+
+  function renderSkillsList() {
+    const all = listSkills();
+    $('skills-count').textContent = `${all.length} / ${MAX_SKILLS}`;
+    skillsListEl.innerHTML = '';
+    if (!all.length) {
+      const empty = document.createElement('div');
+      empty.className = 'skills-list-empty';
+      empty.textContent = '还没有技能。点下方「新建技能」或导入 SKILL.md。';
+      skillsListEl.appendChild(empty);
+      return;
+    }
+    all.forEach((sk) => {
+      const item = document.createElement('button');
+      item.className = 'skills-list-item' + (editingSkillId === sk.id ? ' on' : '');
+      const pin = document.createElement('span');
+      pin.className = 'skills-list-pin';
+      pin.textContent = pinnedSkillId === sk.id ? '●' : '○';
+      pin.title = pinnedSkillId === sk.id ? '持续启用中' : '未启用';
+      const name = document.createElement('span');
+      name.className = 'skills-list-name';
+      name.textContent = sk.name;
+      const desc = document.createElement('span');
+      desc.className = 'skills-list-desc';
+      desc.textContent = sk.description || '无描述';
+      item.appendChild(pin); item.appendChild(name); item.appendChild(desc);
+      item.addEventListener('click', () => showSkillEditor(sk));
+      skillsListEl.appendChild(item);
+    });
+  }
+
+  function showSkillEditor(skill) {
+    editingSkillId = skill ? skill.id : null;
+    skillsEmptyEl.classList.toggle('hidden', !!skill);
+    skillsFormEl.classList.toggle('hidden', !skill);
+    skillMsgEl.textContent = '';
+    if (!skill) { renderSkillsList(); return; }
+    skillNameEl.value = skill.name;
+    skillDescEl.value = skill.description || '';
+    skillPromptEl.value = skill.prompt;
+    $('skill-delete').classList.toggle('hidden', false);
+    $('skill-export').classList.toggle('hidden', false);
+    renderSkillsList();
+  }
+
+  function formMessage(text, error = false) {
+    skillMsgEl.textContent = text;
+    skillMsgEl.className = 'skills-form-msg' + (error ? ' err' : ' ok');
+  }
+
+  function saveCurrentSkill() {
+    const r = upsertSkill(
+      { name: skillNameEl.value, description: skillDescEl.value, prompt: skillPromptEl.value },
+      editingSkillId
+    );
+    if (!r.ok) { formMessage(r.error, true); return; }
+    if (pinnedSkillId === editingSkillId) pinnedSkillId = r.skill.id;
+    if (onceSkillId === editingSkillId) onceSkillId = r.skill.id;
+    editingSkillId = r.skill.id;
+    updateSkillChip();
+    renderSkillsList();
+    formMessage('已保存');
+  }
+
+  async function importSkillFiles() {
+    const files = await ipc.pickAnyFiles();
+    if (!files.length) return;
+    let count = 0;
+    let lastErr = '';
+    for (const f of files) {
+      if (!/\.(md|markdown|txt)$/i.test(f)) continue;
+      try {
+        const text = await ipc.readFile(f);
+        const r = parseSkillMarkdown(text);
+        if (!r.ok) { lastErr = `${f}：${r.error}`; continue; }
+        const saved = upsertSkill(r.skill);
+        if (!saved.ok) { lastErr = `${f}：${saved.error}`; continue; }
+        count++;
+      } catch (e) {
+        lastErr = `${f}：${(e && e.message) || e}`;
+      }
+    }
+    renderSkillsList();
+    if (count) formMessage(`已导入 ${count} 个技能`);
+    else if (lastErr) formMessage(lastErr, true);
+  }
+
+  function pasteSkill() {
+    showMenu($('skill-paste'), [
+      { title: '把 SKILL.md 内容粘贴到下方文本框' },
+      { label: '从剪贴板读取并解析', onClick: async () => {
+        try {
+          const text = await navigator.clipboard.readText();
+          const r = parseSkillMarkdown(text);
+          if (!r.ok) { formMessage(r.error, true); return; }
+          skillNameEl.value = r.skill.name;
+          skillDescEl.value = r.skill.description || '';
+          skillPromptEl.value = r.skill.prompt;
+          editingSkillId = null;
+          skillsEmptyEl.classList.add('hidden');
+          skillsFormEl.classList.remove('hidden');
+          formMessage('已解析，确认后点「保存技能」');
+          renderSkillsList();
+        } catch (e) {
+          formMessage('读取剪贴板失败：' + ((e && e.message) || e), true);
+        }
+      } },
+    ]);
+  }
+
+  function exportCurrentSkill() {
+    const sk = getSkill(editingSkillId);
+    if (!sk) return;
+    const blob = new Blob([toSkillMarkdown(sk)], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${sk.name.replace(/[\\/:*?"<>|]/g, '_')}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
   function updateContextChip() {
@@ -1039,8 +1175,37 @@ function numberedLines(lines, startNo) {
     includeContext = !includeContext;
     updateContextChip();
   });
+  // 技能管理弹窗事件
+  $('skills-close').addEventListener('click', closeSkillsManager);
+  skillsDialog.addEventListener('pointerdown', (e) => { if (e.target === skillsDialog) closeSkillsManager(); });
+  $('skill-new').addEventListener('click', () => showSkillEditor(null));
+  $('skill-import').addEventListener('click', importSkillFiles);
+  $('skill-paste').addEventListener('click', pasteSkill);
+  $('skill-save').addEventListener('click', saveCurrentSkill);
+  $('skill-cancel').addEventListener('click', () => showSkillEditor(null));
+  $('skill-delete').addEventListener('click', () => {
+    const sk = getSkill(editingSkillId);
+    if (!sk) return;
+    showMenu($('skill-delete'), [
+      { title: `确认删除「${sk.name}」？` },
+      { label: '删除', onClick: () => {
+        deleteSkill(sk.id);
+        if (pinnedSkillId === sk.id) pinnedSkillId = null;
+        if (onceSkillId === sk.id) onceSkillId = null;
+        updateSkillChip();
+        showSkillEditor(null);
+        formMessage('已删除');
+      } },
+    ]);
+  });
+  $('skill-export').addEventListener('click', exportCurrentSkill);
+
   inputEl.addEventListener('input', updateSendState);
   inputEl.addEventListener('keydown', (e) => {
+    if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // 让字符先落到输入框，再判断是否弹技能菜单
+      setTimeout(() => { if (handleSlash()) e.preventDefault(); }, 0);
+    }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();

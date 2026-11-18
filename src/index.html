@@ -244,6 +244,48 @@
     </div>
   </div>
 
+  <!-- Agent 技能管理 -->
+  <div id="skills-dialog" class="overlay hidden">
+    <div class="ai-box skills-box">
+      <header class="ai-head">
+        <div class="ai-title">
+          <svg viewBox="0 0 24 24" class="ai-spark"><path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15.6l-1.7-4.6L6 9.3l4.3-1.7z" /></svg>
+          管理技能
+        </div>
+        <span class="ai-scope" id="skills-count"></span>
+        <button class="mini-btn" id="skills-close" title="关闭 (Esc)">✕</button>
+      </header>
+      <div class="ai-source">技能是可复用的提示词片段。用 <code>/技能名</code> 单次调用，或在 Agent 面板里持续启用。</div>
+      <div class="skills-body">
+        <div class="skills-list" id="skills-list"></div>
+        <div class="skills-editor" id="skills-editor">
+          <div class="skills-editor-empty" id="skills-editor-empty">从左侧选择一个技能进行编辑，或点「新建技能」。</div>
+          <div id="skills-editor-form" class="hidden">
+            <label>名称<input type="text" id="skill-name" maxlength="40" placeholder="例如：技术写作" /></label>
+            <label>描述<input type="text" id="skill-desc" maxlength="120" placeholder="一句话说明何时使用" /></label>
+            <label>正文（SKILL.md 内容）<textarea id="skill-prompt" rows="10" spellcheck="false" placeholder="---&#10;name: 技术写作&#10;description: 强调准确性&#10;---&#10;&#10;以资深技术写作者身份回答……"></textarea></label>
+            <div class="skills-form-msg" id="skills-form-msg"></div>
+            <div class="skills-form-actions">
+              <button class="btn ghost" id="skill-delete">删除</button>
+              <button class="btn ghost" id="skill-export">导出 .md</button>
+              <span class="spacer"></span>
+              <button class="btn ghost" id="skill-cancel">取消</button>
+              <button class="btn success" id="skill-save">保存技能</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="ai-foot">
+        <span class="ai-meta">支持 WorkBuddy 风格的 SKILL.md（frontmatter + 正文）</span>
+        <div class="ai-foot-actions">
+          <button class="btn ghost" id="skill-paste">粘贴 SKILL.md</button>
+          <button class="btn" id="skill-import">导入文件…</button>
+          <button class="btn success" id="skill-new">新建技能</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
   <!-- Agent 回复 → 差异确认 -->
   <div id="apply-dialog" class="overlay hidden">
     <div class="ai-box">
