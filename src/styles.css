@@ -2059,3 +2059,16 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
   background: var(--bg); color: var(--text); outline: none; font-size: 12px;
 }
 .cs-ai-input:focus { border-color: var(--accent); }
+
+/* 主题卡片：自定义主题带删除角标 */
+.ts-preset-wrap { position: relative; }
+.ts-preset-del {
+  position: absolute; top: 3px; right: 3px;
+  width: 18px; height: 18px; border-radius: 5px;
+  background: var(--bg-app); color: var(--text-faint);
+  font-size: 14px; line-height: 1;
+  display: none; place-items: center;
+  z-index: 2;
+}
+.ts-preset-wrap:hover .ts-preset-del { display: grid; }
+.ts-preset-del:hover { color: #e5484d; }

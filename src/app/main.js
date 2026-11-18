@@ -5,8 +5,8 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import * as ipc from './ipc.js';
 import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
-import { getScheme, deriveAccent } from './color-schemes.js';
-import { themeVars, ED_VAR_KEYS, UI_VAR_KEYS, getPreset } from './theme-presets.js';
+import { getScheme } from './color-schemes.js';
+import { themeVars, getPreset, tokensFromColors, resolveParams, luminance, PRESETS } from './theme-presets.js';
 import { createEditor } from './editor.js';
 import { createPreview, dirname } from './preview.js';
 import { createTabs } from './tabs.js';
@@ -44,50 +44,34 @@ const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
 const uid = () => 't' + Math.random().toString(36).slice(2, 9);
 
 /* ================================================================= 主题与布局 */
+// 当前主题的统一解析：内置预设取 PRESETS，自定义配色（p 开头）从颜色派生完整 token。
+// 返回 { id, tokens, tone }；找不到时回落到 ink。
+function resolveActiveTheme() {
+  const id = (prefs.theme && prefs.theme.active) || 'ink';
+  const preset = getPreset(id);
+  if (preset) return { id, tokens: preset.tokens, tone: preset.tone };
+  const scheme = getScheme(id);
+  if (scheme && scheme.colors && scheme.colors.length) {
+    const tokens = tokensFromColors(scheme.colors);
+    if (tokens) return { id, tokens, tone: scheme.tone || (luminance(scheme.colors[0].hex) < 128 ? 'dark' : 'light') };
+  }
+  const ink = getPreset('ink');
+  return { id: 'ink', tokens: ink.tokens, tone: ink.tone };
+}
+
 function resolvedMode() {
-  // Theme Studio 启用时，明暗由所选预设决定（深色预设 → 整个应用深色）
-  if (prefs.theme && prefs.theme.enabled) {
-    const preset = getPreset(prefs.theme.preset);
-    if (preset) return preset.tone;
-  }
-  if (prefs.themeMode === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return prefs.themeMode;
+  // 明暗完全由当前主题决定（主题工作台常驻）
+  return resolveActiveTheme().tone;
 }
 
-// 自定义配色方案：以主色派生强调色套装，用 inline 变量覆盖 CSS 的 data-scheme 规则。
-// data-scheme 仍保留为方案 id（自定义 id 以 p 开头），切回内置方案时清除 inline 覆盖即可。
-function applySchemeColors(root) {
-  const style = root.style;
-  const scheme = getScheme(prefs.scheme);
-  if (!scheme || !scheme.colors || !scheme.colors.length) {
-    ['--accent', '--accent-hover', '--accent-soft'].forEach((k) => style.removeProperty(k));
-    return;
-  }
-  const accent = deriveAccent(scheme.colors[0].hex);
-  if (!accent) {
-    ['--accent', '--accent-hover', '--accent-soft'].forEach((k) => style.removeProperty(k));
-    return;
-  }
-  style.setProperty('--accent', accent.accent);
-  style.setProperty('--accent-hover', accent.hover);
-  style.setProperty('--accent-soft', accent.soft);
-}
-
-// Theme Studio：把编辑区主题预设的 token / 画布纹理 / 排版参数写成 inline 变量。
-// 关闭时逐个移除 --ed-*，让 styles.css 里的默认值（跟随原有明/暗主题）生效。
+// Theme Studio 常驻：把当前主题的 token + 该主题的外观参数写成 inline 变量，
+// 覆盖整个界面。data-theme-studio 标记当前主题 id，供 CSS 作用域使用。
 function applyThemeStudio(root) {
-  const style = root.style;
-  const theme = prefs.theme;
-  if (!theme || !theme.enabled) {
-    [...ED_VAR_KEYS, ...UI_VAR_KEYS].forEach((k) => style.removeProperty(k));
-    root.removeAttribute('data-theme-studio');
-    return;
-  }
-  const vars = themeVars(theme, resolvedMode());
-  Object.entries(vars).forEach(([k, v]) => style.setProperty(k, v));
-  root.dataset.themeStudio = theme.preset || 'ink';
+  const active = resolveActiveTheme();
+  const params = resolveParams(prefs.theme, active.id);
+  const vars = themeVars(active.tokens, active.tone, params);
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+  root.dataset.themeStudio = active.id;
 }
 
 function applyTheme() {
@@ -95,12 +79,9 @@ function applyTheme() {
   const root = document.documentElement;
   const changed = root.dataset.mode !== mode;
   root.dataset.mode = mode;
-  root.dataset.scheme = prefs.scheme;
-  // Theme Studio 启用时，整站配色（含强调色）由预设接管，跳过自定义强调色；
-  // 关闭时先清掉预设写入的所有变量，再应用自定义强调色。
-  const studioOn = !!(prefs.theme && prefs.theme.enabled);
+  const active = resolveActiveTheme();
+  root.dataset.scheme = active.id;
   applyThemeStudio(root);
-  if (!studioOn) applySchemeColors(root);
   $('hljs-light').disabled = mode === 'dark';
   $('hljs-dark').disabled = mode !== 'dark';
   $('btn-theme').innerHTML = `<svg viewBox="0 0 24 24"><use href="#${mode === 'dark' ? 'i-sun' : 'i-moon'}" /></svg>`;
@@ -671,8 +652,7 @@ function onPrefChange(key, value) {
     scheduleRender(true);
     return;
   }
-  if (key === 'themeMode' || key === 'scheme') applyTheme();
-  else if (key === 'theme') {
+  if (key === 'theme') {
     applyTheme();
     if (preview && activeTab()) scheduleRender(true);
   }
@@ -952,7 +932,10 @@ async function boot() {
   $('btn-chat').addEventListener('click', () => chat.toggle());
   $('sb-chat').addEventListener('click', () => chat.toggle());
   $('btn-theme').addEventListener('click', () => {
-    prefs.themeMode = resolvedMode() === 'dark' ? 'light' : 'dark';
+    // 切换明暗：选一个与当前基调相反的内置主题（浅色 ↔ 深色）
+    const cur = resolveActiveTheme();
+    const target = PRESETS.find((p) => p.tone !== cur.tone) || PRESETS[0];
+    prefs.theme.active = target.id;
     savePrefs();
     applyTheme();
     settings.render();
@@ -1026,11 +1009,6 @@ async function boot() {
       editor.refresh();
     },
     onEnd: () => savePrefs(),
-  });
-
-  // 主题跟随系统
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (prefs.themeMode === 'system') applyTheme();
   });
 
   setupShortcuts();

@@ -6,21 +6,14 @@ const SESSION_KEY = 'feathermark.session.v1';
 
 // Theme Studio 的默认配置（与 theme-presets.js 的 DEFAULT_THEME 保持一致，
 // 内联在此避免 store 依赖预设模块；新增字段时两处同步）。
+// 常驻生效：active 为当前主题 id，params 按主题 id 存各自的外观参数。
 export const DEFAULT_THEME = {
-  enabled: false,
-  preset: 'ink',
-  canvas: 'solid',
-  canvasStrength: 0.5,
-  backgroundImage: null,   // data URL（压缩后的背景图）
-  imageOpacity: 0.35,      // 图片不透明度 0..1
-  imageBlur: 0,            // 图片模糊度 0..20 px
-  imageSize: 'cover',       // cover | contain | repeat
-  typography: { lineHeight: 1.68, letterSpacing: 0, maxWidth: 860, activeLine: true, cursorWidth: 2 },
+  active: 'ink',
+  params: {},              // { [themeId]: { canvas, canvasStrength, backgroundImage, ... } }
 };
 
 export const DEFAULT_PREFS = {
-  themeMode: 'light', // light | dark | system
-  scheme: 'ink', // ink | forest | amber | violet
+  scheme: 'ink', // 兼容旧字段：自定义强调色 id（新主题模型下不再作为入口）
   theme: JSON.parse(JSON.stringify(DEFAULT_THEME)), // Theme Studio 配置
   editorFont: '',
   editorSize: 15,
@@ -62,9 +55,30 @@ function write(key, value) {
 
 const stored = read(PREFS_KEY) || {};
 export const prefs = Object.assign({}, DEFAULT_PREFS, stored);
-// 深合并 theme：旧配置缺字段时逐项补默认值，避免 undefined
-prefs.theme = Object.assign({}, DEFAULT_THEME, stored.theme || {});
-prefs.theme.typography = Object.assign({}, DEFAULT_THEME.typography, (stored.theme && stored.theme.typography) || {});
+
+// theme 深合并 + 旧结构迁移：旧版是 { enabled, preset, canvas, canvasStrength, ..., typography }
+// 全局单一参数；新版是 { active, params: { [id]: 参数 } } 每个主题各带一套。
+const oldTheme = stored.theme || {};
+if (oldTheme && (oldTheme.enabled !== undefined || oldTheme.preset !== undefined || oldTheme.canvas !== undefined)) {
+  // 旧结构：把全局参数迁移为旧 preset 的专属参数
+  const legacyId = oldTheme.preset || 'ink';
+  const legacyParams = {};
+  ['canvas', 'canvasStrength', 'backgroundImage', 'imageOpacity', 'imageBlur', 'imageSize'].forEach((k) => {
+    if (oldTheme[k] !== undefined) legacyParams[k] = oldTheme[k];
+  });
+  if (oldTheme.typography) legacyParams.typography = oldTheme.typography;
+  prefs.theme = { active: legacyId, params: { [legacyId]: legacyParams } };
+} else {
+  prefs.theme = {
+    active: oldTheme.active || DEFAULT_THEME.active,
+    params: oldTheme.params || {},
+  };
+  // 逐主题补全参数里的 typography（旧 params 可能缺字段）
+  Object.keys(prefs.theme.params).forEach((id) => {
+    const p = prefs.theme.params[id] || {};
+    prefs.theme.params[id] = { ...p, typography: { lineHeight: 1.68, letterSpacing: 0, maxWidth: 860, activeLine: true, cursorWidth: 2, ...(p.typography || {}) } };
+  });
+}
 
 export function savePrefs() {
   write(PREFS_KEY, prefs);

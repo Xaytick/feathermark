@@ -137,7 +137,7 @@ export function getScheme(id) {
  * 保存配色。colors 为 [{hex, r, g, b}] 或 hex 字符串数组。
  * 返回 { ok, scheme?, error? }；不合法时拒绝写入。
  */
-export function saveScheme(name, colors) {
+export function saveScheme(name, colors, params) {
   const trimmed = String(name == null ? '' : name).trim();
   if (!trimmed) return { ok: false, error: '请填写配色名称' };
 
@@ -159,6 +159,7 @@ export function saveScheme(name, colors) {
     id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: trimmed,
     colors: clean,
+    params: params ? JSON.parse(JSON.stringify(params)) : null, // 保存时绑定当前主题外观参数
     createdAt: Date.now(),
   };
   if (!writeAll([...all, scheme])) return { ok: false, error: '保存失败：本地存储不可用' };

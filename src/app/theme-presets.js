@@ -106,9 +106,8 @@ export const CANVASES = [
   { id: 'grain', name: '纸纹', desc: '颗粒质感' },
 ];
 
-export const DEFAULT_THEME = {
-  enabled: false,          // 是否启用 Theme Studio；关闭则完全沿用原有主题
-  preset: 'ink',           // 当前预设 id
+// 单套主题的「外观参数」默认值：画布/背景图/排版。每个主题各存一份（按 theme id 索引）。
+export const DEFAULT_THEME_PARAMS = {
   canvas: 'solid',         // 背景画布 id
   canvasStrength: 0.5,     // 纹理强度 0..1
   backgroundImage: null,   // 背景图 data URL（已压缩）
@@ -123,6 +122,76 @@ export const DEFAULT_THEME = {
     cursorWidth: 2,        // 光标宽度（px）
   },
 };
+
+// 新版 theme：常驻生效，active 指向当前主题 id（内置预设或自定义 p 开头），
+// params[themeId] 存该主题的外观参数（缺省时用 DEFAULT_THEME_PARAMS）。
+export const DEFAULT_THEME = {
+  active: 'ink',
+  params: {},              // { [themeId]: Partial<DEFAULT_THEME_PARAMS> }
+};
+
+export function defaultParams() {
+  return JSON.parse(JSON.stringify(DEFAULT_THEME_PARAMS));
+}
+
+/** 合并出某主题的完整参数：默认值 + 该主题的覆盖。 */
+export function resolveParams(theme, id) {
+  const base = defaultParams();
+  const saved = (theme && theme.params && theme.params[id]) || {};
+  return {
+    ...base,
+    ...saved,
+    typography: { ...base.typography, ...(saved.typography || {}) },
+  };
+}
+
+/** 相对亮度（0 黑 ~ 255 白），用于从颜色推断明暗基调。 */
+export function luminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+/**
+ * 从一组自定义颜色派生完整 --ed-* token，使自定义配色能像内置预设一样
+ * 驱动整个界面。取第一个颜色为主色，其余依次作为语法高亮色；明暗由
+ * 第一个颜色的相对亮度自动判断（可在调用处覆盖 tone）。
+ */
+export function tokensFromColors(colors, tone) {
+  const list = (colors || []).map((c) => (typeof c === 'string' ? c : c && c.hex)).filter(Boolean);
+  if (!list.length) return null;
+  const accent = list[0].toUpperCase();
+  const dark = tone ? tone === 'dark' : luminance(accent) < 128;
+  const pick = (i, fallback) => (list[i] || fallback).toUpperCase();
+  const nb = (i, fbDark, fbLight) => pick(i, dark ? fbDark : fbLight);
+  const base = dark
+    ? { bg: '#191C22', fg: '#E4E8EF', muted: '#9AA5B5', faint: '#7B8493', border: '#2B313B', quoteBg: '#1C2027', codeBg: '#21262E', codeBorder: '#2E3540' }
+    : { bg: '#FCFCFA', fg: '#2E3440', muted: '#6B7280', faint: '#9AA1AC', border: '#E5E7EB', quoteBg: '#F5F6F9', codeBg: '#F3F4F7', codeBorder: '#E5E8EE' };
+  return {
+    '--ed-bg': base.bg,
+    '--ed-fg': base.fg,
+    '--ed-fg-muted': base.muted,
+    '--ed-fg-faint': base.faint,
+    '--ed-accent': accent,
+    '--ed-selection': rgba(accent, dark ? 0.24 : 0.16),
+    '--ed-cursor': accent,
+    '--ed-activeline': rgba(base.fg, dark ? 0.055 : 0.045),
+    '--ed-border': base.border,
+    '--ed-quote-bg': base.quoteBg,
+    '--ed-code-bg': base.codeBg,
+    '--ed-code-border': base.codeBorder,
+    '--ed-h': base.fg,
+    '--ed-strong': base.fg,
+    '--ed-em': base.fg,
+    '--ed-link': accent,
+    '--ed-quote': base.muted,
+    '--ed-string': nb(1, '#E0A75F', '#B45309'),
+    '--ed-keyword': nb(2, '#B79BF5', '#7C3AED'),
+    '--ed-number': nb(3, '#6CD3A5', '#0F8A5F'),
+    '--ed-tag': nb(4, '#6CD3A5', '#0F8A5F'),
+    '--ed-attribute': nb(5, '#E0A75F', '#B45309'),
+    '--ed-type': nb(6, '#B79BF5', '#7C3AED'),
+  };
+}
 
 export function getPreset(id) {
   return PRESETS.find((p) => p.id === id) || null;
@@ -154,15 +223,13 @@ function rgba(hex, alpha) {
  * 深色预设让整个应用变深色——data-mode 由 main.js 据 preset.tone 强制切换，
  * 这里再叠加预设自身的色相，实现「整个界面换色」。
  */
-function deriveUiVars(preset, mode) {
-  const T = preset.tokens;
+function deriveUiVars(T, dark) {
   const bg = T['--ed-bg'];
   const fg = T['--ed-fg'];
   const dim = T['--ed-fg-muted'];
   const faint = T['--ed-fg-faint'];
   const border = T['--ed-border'];
   const accent = T['--ed-accent'];
-  const dark = mode === 'dark' || preset.tone === 'dark';
 
   return {
     '--bg': bg,
@@ -218,34 +285,38 @@ export function canvasSize(canvasId) {
 }
 
 /** 把主题配置 + 当前明暗模式，转换成要写入 documentElement 的 CSS 变量映射。 */
-export function themeVars(theme, mode) {
-  const preset = getPreset(theme.preset);
-  if (!preset) return {};
+/**
+ * 由主题的 token + 外观参数生成要写入 documentElement 的 CSS 变量。
+ * tokens 可来自内置预设，或由 tokensFromColors 从自定义配色派生。
+ */
+export function themeVars(tokens, tone, params) {
+  if (!tokens) return {};
+  const p = params || defaultParams();
+  const dark = tone === 'dark';
   const vars = {};
-  Object.entries(preset.tokens).forEach(([k, v]) => { vars[k] = v; });
-  // 全组件换色：把 UI 变量也覆盖成预设色板（深色预设 → 整个界面深色）
-  Object.assign(vars, deriveUiVars(preset, mode));
+  Object.entries(tokens).forEach(([k, v]) => { vars[k] = v; });
+  // 全组件换色：把 UI 变量也覆盖成主题色板
+  Object.assign(vars, deriveUiVars(tokens, dark));
 
-  const fg = preset.tokens['--ed-fg'];
-  const isGrain = theme.canvas === 'grain';
-  vars['--ed-canvas-image'] = canvasImage(theme.canvas, fg, theme.canvasStrength);
-  vars['--ed-canvas-size'] = canvasSize(theme.canvas);
-  // 纸纹需要双层错位定位
+  const fg = tokens['--ed-fg'];
+  const isGrain = p.canvas === 'grain';
+  vars['--ed-canvas-image'] = canvasImage(p.canvas, fg, p.canvasStrength);
+  vars['--ed-canvas-size'] = canvasSize(p.canvas);
   vars['--ed-canvas-position'] = isGrain ? '0 0, 3px 4px' : '0 0';
 
-  const t = theme.typography || DEFAULT_THEME.typography;
+  const t = p.typography || defaultParams().typography;
   vars['--ed-line-height'] = String(t.lineHeight);
   vars['--ed-letter-spacing'] = `${t.letterSpacing}px`;
   vars['--ed-max-width'] = t.maxWidth ? `${t.maxWidth}px` : 'none';
   vars['--ed-cursor-width'] = `${t.cursorWidth}px`;
-  vars['--ed-active-line'] = t.activeLine ? preset.tokens['--ed-activeline'] : 'transparent';
+  vars['--ed-active-line'] = t.activeLine ? tokens['--ed-activeline'] : 'transparent';
 
   // 背景图片层：仅在配置了图片时输出有效值，否则 opacity=0 隐藏
-  const dataUrl = theme.backgroundImage;
+  const dataUrl = p.backgroundImage;
   vars['--ed-bg-image'] = dataUrl ? `url("${dataUrl}")` : 'none';
-  vars['--ed-bg-opacity'] = dataUrl ? String(Math.max(0, Math.min(1, Number(theme.imageOpacity) || 0))) : '0';
-  vars['--ed-bg-blur'] = `${Math.max(0, Math.min(20, Number(theme.imageBlur) || 0))}px`;
-  const size = theme.imageSize || 'cover';
+  vars['--ed-bg-opacity'] = dataUrl ? String(Math.max(0, Math.min(1, Number(p.imageOpacity) || 0))) : '0';
+  vars['--ed-bg-blur'] = `${Math.max(0, Math.min(20, Number(p.imageBlur) || 0))}px`;
+  const size = p.imageSize || 'cover';
   vars['--ed-bg-size'] = size === 'repeat' ? 'auto' : size;
   vars['--ed-bg-repeat'] = size === 'repeat' ? 'repeat' : 'no-repeat';
   return vars;

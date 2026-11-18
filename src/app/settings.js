@@ -3,7 +3,7 @@ import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
 import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
 import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
-import { PRESETS, CANVASES, getPreset } from './theme-presets.js';
+import { PRESETS, CANVASES, getPreset, tokensFromColors, resolveParams, defaultParams, luminance } from './theme-presets.js';
 import { loadAndCompressImage } from './image-tools.js';
 
 export function createSettings({ body, onApply }) {
@@ -176,7 +176,7 @@ export function createSettings({ body, onApply }) {
   }
 
 
-  /* ---------------------------------------------------------- 自定义配色 */
+  /* ---------------------------------------------------------- 主题创建工具 */
   function buildColorSchemesSection() {
     const wrap = document.createElement('div');
     wrap.className = 'color-schemes';
@@ -217,8 +217,6 @@ export function createSettings({ body, onApply }) {
       aiMsg.className = 'cs-save-msg';
       aiMsg.textContent = '正在生成…';
       try {
-        // 推理模型会把 token 先用在 reasoning_content 上，预算太小会导致正文被截断成空。
-        // 用用户配置的 max_tokens 作基础（至少 1024），失败且确属「空正文」时加大一档重试。
         let cfg = {};
         try { cfg = await ipc.aiConfigGet() || {}; } catch (_) {}
         const base = Math.max(1024, Number(cfg.max_tokens) || 0);
@@ -234,7 +232,6 @@ export function createSettings({ body, onApply }) {
             break;
           } catch (e) {
             const msg = (e && e.message) ? e.message : String(e);
-            // 仅「正文为空/被截断」值得加大预算重试；鉴权/网络/配置错误直接抛出
             if (!/模型没有返回内容|max_tokens|reasoning_content|截断/.test(msg)) throw e;
             lastErr = e;
           }
@@ -242,8 +239,6 @@ export function createSettings({ body, onApply }) {
         if (!res) throw lastErr || new Error('AI 没有返回内容，请重试');
         const content = String((res && res.content) || '').trim();
         if (!content) throw new Error('AI 没有返回内容，请重试');
-        // 严格遵循配色框的格式与校验：先尝试提取 hex（忽略模型带出的多余文字），
-        // 若无 hex 则把原文交给统一解析器处理 rgb/三元组等格式。
         const hexes = content.match(/#[\da-fA-F]{6}\b|#[\da-fA-F]{3}\b/g);
         const result = parseColors(hexes ? hexes.join('\n') : content);
         if (!result.colors.length) throw new Error('AI 返回的颜色无法识别，请换个描述重试');
@@ -254,8 +249,7 @@ export function createSettings({ body, onApply }) {
         input.scrollIntoView({ block: 'nearest' });
       } catch (e) {
         aiMsg.className = 'cs-save-msg err';
-        const msg = (e && e.message) ? e.message : String(e);
-        aiMsg.textContent = '生成失败：' + msg;
+        aiMsg.textContent = '生成失败：' + ((e && e.message) ? e.message : String(e));
       } finally {
         aiBtn.disabled = false;
       }
@@ -263,7 +257,6 @@ export function createSettings({ body, onApply }) {
     aiInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); aiBtn.click(); }
     });
-
     aiBox.appendChild(aiTitle);
     aiBox.appendChild(aiHint);
     const aiRow = document.createElement('div');
@@ -293,14 +286,13 @@ export function createSettings({ body, onApply }) {
     parseBtn.textContent = '解析预览';
     wrap.appendChild(parseBtn);
 
-    // 2) 解析结果：有效色块 + 错误提示
+    // 2) 解析结果
     const preview = document.createElement('div');
     preview.className = 'cs-preview';
     preview.id = 'cs-preview';
     wrap.appendChild(preview);
 
-    let parsed = []; // 当前解析出的有效颜色
-
+    let parsed = [];
     const renderPreview = (result) => {
       parsed = result ? result.colors : [];
       preview.innerHTML = '';
@@ -317,8 +309,7 @@ export function createSettings({ body, onApply }) {
           const label = document.createElement('span');
           label.className = 'cs-chip-label';
           label.textContent = c.hex;
-          chip.appendChild(dot);
-          chip.appendChild(label);
+          chip.appendChild(dot); chip.appendChild(label);
           list.appendChild(chip);
         });
         preview.appendChild(list);
@@ -343,18 +334,13 @@ export function createSettings({ body, onApply }) {
       saveRow.style.display = parsed.length ? '' : 'none';
     };
 
-    parseBtn.addEventListener('click', () => {
-      renderPreview(parseColors(input.value));
-    });
+    parseBtn.addEventListener('click', () => renderPreview(parseColors(input.value)));
     input.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        renderPreview(parseColors(input.value));
-      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); renderPreview(parseColors(input.value)); }
     });
     input.addEventListener('input', () => renderPreview(null));
 
-    // 3) 命名保存（仅在有有效颜色时显示）
+    // 3) 命名保存（存为新的自定义主题，绑定当前外观参数）
     const saveRow = document.createElement('div');
     saveRow.className = 'cs-save-row';
     saveRow.id = 'cs-save-row';
@@ -363,99 +349,36 @@ export function createSettings({ body, onApply }) {
     nameInput.type = 'text';
     nameInput.className = 'cs-name-input';
     nameInput.id = 'cs-name-input';
-    nameInput.placeholder = '配色名称';
+    nameInput.placeholder = '主题名称';
     nameInput.maxLength = 40;
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn';
-    saveBtn.textContent = '保存配色';
+    saveBtn.textContent = '保存为主题';
     const saveMsg = document.createElement('div');
     saveMsg.className = 'cs-save-msg';
     saveBtn.addEventListener('click', () => {
       saveMsg.textContent = '';
-      const res = saveScheme(nameInput.value, parsed);
+      const params = resolveParams(prefs.theme, prefs.theme.active);
+      const res = saveScheme(nameInput.value, parsed, params);
       if (!res.ok) {
         saveMsg.className = 'cs-save-msg err';
         saveMsg.textContent = res.error;
         return;
       }
       saveMsg.className = 'cs-save-msg ok';
-      saveMsg.textContent = `已保存「${res.scheme.name}」`;
+      saveMsg.textContent = `已保存「${res.scheme.name}」，可在上方主题卡片中选用`;
       nameInput.value = '';
-      renderSavedList();
-      // 立即应用新方案
-      apply('scheme', res.scheme.id);
+      // 新主题立即生效并重绘设置
+      prefs.theme.active = res.scheme.id;
+      savePrefs();
+      if (onApply) onApply('theme', prefs.theme);
+      render();
     });
     saveRow.appendChild(nameInput);
     saveRow.appendChild(saveBtn);
     wrap.appendChild(saveRow);
     wrap.appendChild(saveMsg);
 
-    // 4) 已保存列表：应用 / 删除
-    const savedBox = document.createElement('div');
-    savedBox.className = 'cs-saved';
-    savedBox.id = 'cs-saved';
-    wrap.appendChild(savedBox);
-
-    function renderSavedList() {
-      savedBox.innerHTML = '';
-      const schemes = listSchemes();
-      const title = document.createElement('div');
-      title.className = 'cs-saved-title';
-      title.textContent = `已保存配色（${schemes.length}）`;
-      savedBox.appendChild(title);
-      if (!schemes.length) {
-        const empty = document.createElement('div');
-        empty.className = 'cs-preview-empty';
-        empty.textContent = '还没有保存的配色';
-        savedBox.appendChild(empty);
-        return;
-      }
-      schemes.forEach((s) => {
-        const rowEl = document.createElement('div');
-        rowEl.className = 'cs-saved-row';
-        if (prefs.scheme === s.id) rowEl.classList.add('on');
-
-        const dots = document.createElement('div');
-        dots.className = 'cs-saved-dots';
-        s.colors.slice(0, 6).forEach((c) => {
-          const d = document.createElement('span');
-          d.className = 'cs-saved-dot';
-          d.style.background = c.hex;
-          d.title = c.hex;
-          dots.appendChild(d);
-        });
-
-        const name = document.createElement('span');
-        name.className = 'cs-saved-name';
-        name.textContent = s.name;
-
-        const useBtn = document.createElement('button');
-        useBtn.className = 'mini-btn';
-        useBtn.textContent = prefs.scheme === s.id ? '使用中' : '应用';
-        useBtn.disabled = prefs.scheme === s.id;
-        useBtn.addEventListener('click', () => {
-          apply('scheme', s.id);
-          renderSavedList();
-        });
-
-        const delBtn = document.createElement('button');
-        delBtn.className = 'mini-btn cs-del-btn';
-        delBtn.textContent = '删除';
-        delBtn.addEventListener('click', () => {
-          deleteScheme(s.id);
-          if (prefs.scheme === s.id) apply('scheme', 'ink');
-          renderSavedList();
-        });
-
-        rowEl.appendChild(dots);
-        rowEl.appendChild(name);
-        rowEl.appendChild(useBtn);
-        rowEl.appendChild(delBtn);
-        savedBox.appendChild(rowEl);
-      });
-    }
-
-    renderSavedList();
     renderPreview(null);
     return wrap;
   }
@@ -464,116 +387,139 @@ export function createSettings({ body, onApply }) {
   function buildThemeStudioSection() {
     const wrap = document.createElement('div');
     const theme = prefs.theme;
-    const update = () => apply('theme', prefs.theme);
-
-    // 启用开关
-    const enableRow = document.createElement('div');
-    enableRow.className = 'set-row';
-    enableRow.innerHTML = '<div class="set-left"><div class="set-label">启用主题工作台</div>' +
-      '<div class="set-desc">整个界面跟随预设配色（含明暗、强调色），编辑区另有背景与排版；关闭则恢复默认外观</div></div>';
-    const enableCtrl = document.createElement('div');
-    enableCtrl.className = 'set-control';
-    const enableSwitch = toggle(theme.enabled, (v) => {
-      theme.enabled = v;
-      update();
-      syncEnabled();
-    });
-    enableCtrl.appendChild(enableSwitch);
-    enableRow.appendChild(enableCtrl);
-    wrap.appendChild(enableRow);
-
-    // 受开关控制的部分
-    const body = document.createElement('div');
-    body.className = 'ts-body';
-    wrap.appendChild(body);
-    const syncEnabled = () => {
-      body.style.opacity = theme.enabled ? '1' : '0.45';
-      body.style.pointerEvents = theme.enabled ? '' : 'none';
+    const update = () => {
+      savePrefs();
+      if (onApply) onApply('theme', theme);
     };
+    const activeId = theme.active;
 
-    // 1) 主题预设色卡
+    // 1) 主题卡片网格：内置预设 + 自定义主题（同样式展示）
     const presetLabel = document.createElement('div');
     presetLabel.className = 'set-desc';
-    presetLabel.textContent = '主题预设';
-    body.appendChild(presetLabel);
+    presetLabel.textContent = '主题预设（内置 + 自定义）';
+    wrap.appendChild(presetLabel);
     const presetGrid = document.createElement('div');
     presetGrid.className = 'ts-presets';
-    let activeCard = null;
-    PRESETS.forEach((p) => {
-      const card = document.createElement('button');
-      card.className = 'ts-preset' + (theme.preset === p.id ? ' on' : '');
-      card.dataset.preset = p.id;
-      if (theme.preset === p.id) activeCard = card;
+
+    const builtins = PRESETS.map((p) => ({
+      id: p.id, name: p.name, desc: p.desc, tokens: p.tokens, custom: false,
+    }));
+    const customs = listSchemes()
+      .filter((sc) => sc.colors && sc.colors.length)
+      .map((sc) => {
+        const tokens = tokensFromColors(sc.colors, sc.tone) || {};
+        return {
+          id: sc.id, name: sc.name, desc: '自定义主题', tokens, custom: true,
+        };
+      });
+    const allThemes = [...builtins, ...customs];
+
+    allThemes.forEach((t) => {
+      const card = document.createElement('div');
+      card.className = 'ts-preset-wrap';
+      const btn = document.createElement('button');
+      btn.className = 'ts-preset' + (activeId === t.id ? ' on' : '');
+      btn.dataset.preset = t.id;
       const sw = document.createElement('div');
       sw.className = 'ts-preset-swatch';
-      sw.style.background = p.tokens['--ed-bg'];
-      sw.style.borderColor = p.tokens['--ed-border'];
+      sw.style.background = t.tokens['--ed-bg'] || '#888';
+      sw.style.borderColor = t.tokens['--ed-border'] || '#ccc';
       const bar = document.createElement('div');
       bar.className = 'ts-preset-bar';
-      const t1 = document.createElement('span');
-      t1.style.background = p.tokens['--ed-fg'];
-      const t2 = document.createElement('span');
-      t2.style.background = p.tokens['--ed-accent'];
-      const t3 = document.createElement('span');
-      t3.style.background = p.tokens['--ed-string'];
-      bar.appendChild(t1); bar.appendChild(t2); bar.appendChild(t3);
+      ['--ed-fg', '--ed-accent', '--ed-string'].forEach((k) => {
+        const seg = document.createElement('span');
+        seg.style.background = t.tokens[k] || '#999';
+        bar.appendChild(seg);
+      });
       sw.appendChild(bar);
       const name = document.createElement('div');
       name.className = 'ts-preset-name';
-      name.textContent = p.name;
+      name.textContent = t.name;
       const desc = document.createElement('div');
       desc.className = 'ts-preset-desc';
-      desc.textContent = p.desc;
-      card.appendChild(sw);
-      card.appendChild(name);
-      card.appendChild(desc);
-      card.addEventListener('click', () => {
-        if (activeCard) activeCard.classList.remove('on');
-        card.classList.add('on');
-        activeCard = card;
-        theme.preset = p.id;
+      desc.textContent = t.desc;
+      btn.appendChild(sw); btn.appendChild(name); btn.appendChild(desc);
+      btn.addEventListener('click', () => {
+        theme.active = t.id;
         update();
+        render();
       });
+      card.appendChild(btn);
+      // 自定义主题带删除角标
+      if (t.custom) {
+        const del = document.createElement('button');
+        del.className = 'ts-preset-del';
+        del.textContent = '×';
+        del.title = '删除主题';
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteScheme(t.id);
+          if (theme.params) delete theme.params[t.id];
+          if (theme.active === t.id) theme.active = 'ink';
+          savePrefs();
+          if (onApply) onApply('theme', theme);
+          render();
+        });
+        card.appendChild(del);
+      }
       presetGrid.appendChild(card);
     });
-    body.appendChild(presetGrid);
+    wrap.appendChild(presetGrid);
 
-    // 2) 背景画布
+    // 主题创建工具（AI 生成 / 导入 / 保存为自定义主题）
+    const createLabel = document.createElement('div');
+    createLabel.className = 'set-desc';
+    createLabel.style.marginTop = '14px';
+    createLabel.textContent = '新建主题';
+    wrap.appendChild(createLabel);
+    wrap.appendChild(buildColorSchemesSection());
+
+    // 2) 主题外观参数（绑定当前主题）
+    const paramsLabel = document.createElement('div');
+    paramsLabel.className = 'set-desc';
+    paramsLabel.style.marginTop = '14px';
+    paramsLabel.textContent = `「${activeId === 'ink' ? '墨夜' : (allThemes.find((t) => t.id === activeId) || {}).name || activeId}」的外观`;
+    wrap.appendChild(paramsLabel);
+
+    if (!theme.params) theme.params = {};
+    if (!theme.params[activeId]) theme.params[activeId] = defaultParams();
+    const params = theme.params[activeId];
+    const setParam = (key, value) => { params[key] = value; update(); };
+
+    // 背景画布
     const canvasRow = document.createElement('div');
     canvasRow.className = 'set-row';
     const canvasLeft = document.createElement('div');
     canvasLeft.innerHTML = '<div class="set-label">背景画布</div><div class="set-desc">叠加在编辑区的纹理</div>';
     const canvasCtrl = document.createElement('div');
     canvasCtrl.className = 'set-control';
-    const canvasSeg = segmented(
+    canvasCtrl.appendChild(segmented(
       CANVASES.map((c) => ({ label: c.name, value: c.id })),
-      theme.canvas,
-      (v) => { theme.canvas = v; update(); },
+      params.canvas,
+      (v) => setParam('canvas', v),
       { small: true }
-    );
-    canvasCtrl.appendChild(canvasSeg);
-    canvasRow.appendChild(canvasLeft);
-    canvasRow.appendChild(canvasCtrl);
-    body.appendChild(canvasRow);
+    ));
+    canvasRow.appendChild(canvasLeft); canvasRow.appendChild(canvasCtrl);
+    wrap.appendChild(canvasRow);
 
-    // 纹理强度滑块
+    // 纹理强度
     const strengthRow = document.createElement('div');
     strengthRow.className = 'set-row';
     strengthRow.innerHTML = '<div class="set-label">纹理强度</div>';
     const strengthCtrl = document.createElement('div');
     strengthCtrl.className = 'set-control';
-    strengthCtrl.appendChild(slider(theme.canvasStrength, {
+    strengthCtrl.appendChild(slider(params.canvasStrength, {
       min: 0, max: 1, step: 0.05, format: (v) => Math.round(v * 100) + '%',
-    }, (v) => { theme.canvasStrength = v; update(); }));
+    }, (v) => setParam('canvasStrength', v)));
     strengthRow.appendChild(strengthCtrl);
-    body.appendChild(strengthRow);
+    wrap.appendChild(strengthRow);
 
-    // 2b) 背景图片
+    // 背景图片
     const imgLabel = document.createElement('div');
     imgLabel.className = 'set-desc';
     imgLabel.style.marginTop = '10px';
     imgLabel.textContent = '背景图片';
-    body.appendChild(imgLabel);
+    wrap.appendChild(imgLabel);
 
     const imgBox = document.createElement('div');
     imgBox.className = 'ts-img-box';
@@ -583,8 +529,7 @@ export function createSettings({ body, onApply }) {
     thumbImg.alt = '';
     const thumbEmpty = document.createElement('span');
     thumbEmpty.textContent = '无图片';
-    thumb.appendChild(thumbImg);
-    thumb.appendChild(thumbEmpty);
+    thumb.appendChild(thumbImg); thumb.appendChild(thumbEmpty);
     const imgInfo = document.createElement('div');
     imgInfo.className = 'ts-img-info';
     const pickBtn = document.createElement('button');
@@ -597,8 +542,8 @@ export function createSettings({ body, onApply }) {
     imgMsg.className = 'cs-save-msg';
 
     const syncImageThumb = () => {
-      if (theme.backgroundImage) {
-        thumbImg.src = theme.backgroundImage;
+      if (params.backgroundImage) {
+        thumbImg.src = params.backgroundImage;
         thumbImg.style.display = '';
         thumbEmpty.style.display = 'none';
         clearBtn.disabled = false;
@@ -609,7 +554,6 @@ export function createSettings({ body, onApply }) {
         clearBtn.disabled = true;
       }
     };
-
     pickBtn.addEventListener('click', async () => {
       imgMsg.textContent = '';
       try {
@@ -620,13 +564,10 @@ export function createSettings({ body, onApply }) {
         imgMsg.textContent = '正在处理图片…';
         pickBtn.disabled = true;
         const result = await loadAndCompressImage(file, ipc);
-        theme.backgroundImage = result.dataUrl;
-        update();
-        syncImageThumb();
-        syncImgControls();
+        setParam('backgroundImage', result.dataUrl);
+        syncImageThumb(); syncImgControls();
         imgMsg.className = 'cs-save-msg ok';
-        const kb = Math.round(result.bytes / 1024);
-        imgMsg.textContent = `已设置 · ${result.width}×${result.height} · 约 ${kb} KB`;
+        imgMsg.textContent = `已设置 · ${result.width}×${result.height} · 约 ${Math.round(result.bytes / 1024)} KB`;
       } catch (e) {
         imgMsg.className = 'cs-save-msg err';
         imgMsg.textContent = '设置失败：' + ((e && e.message) || e);
@@ -635,48 +576,36 @@ export function createSettings({ body, onApply }) {
       }
     });
     clearBtn.addEventListener('click', () => {
-      theme.backgroundImage = null;
-      update();
-      syncImageThumb();
-      syncImgControls();
-      imgMsg.className = 'cs-save-msg';
-      imgMsg.textContent = '';
+      setParam('backgroundImage', null);
+      syncImageThumb(); syncImgControls();
+      imgMsg.className = 'cs-save-msg'; imgMsg.textContent = '';
     });
+    imgInfo.appendChild(pickBtn); imgInfo.appendChild(clearBtn);
+    imgBox.appendChild(thumb); imgBox.appendChild(imgInfo);
+    wrap.appendChild(imgBox); wrap.appendChild(imgMsg);
 
-    imgInfo.appendChild(pickBtn);
-    imgInfo.appendChild(clearBtn);
-    imgBox.appendChild(thumb);
-    imgBox.appendChild(imgInfo);
-    body.appendChild(imgBox);
-    body.appendChild(imgMsg);
-
-    // 仅在有图片时才显示调节项
     const imgControls = document.createElement('div');
     imgControls.className = 'ts-img-controls';
-    const syncImgControls = () => {
-      imgControls.style.display = theme.backgroundImage ? '' : 'none';
-    };
+    const syncImgControls = () => { imgControls.style.display = params.backgroundImage ? '' : 'none'; };
     const opRow = document.createElement('div');
     opRow.className = 'set-row';
     opRow.innerHTML = '<div class="set-label">图片透明度</div>';
     const opCtrl = document.createElement('div');
     opCtrl.className = 'set-control';
-    opCtrl.appendChild(slider(theme.imageOpacity, {
+    opCtrl.appendChild(slider(params.imageOpacity, {
       min: 0, max: 1, step: 0.05, format: (v) => Math.round(v * 100) + '%',
-    }, (v) => { theme.imageOpacity = v; update(); }));
-    opRow.appendChild(opCtrl);
-    imgControls.appendChild(opRow);
+    }, (v) => setParam('imageOpacity', v)));
+    opRow.appendChild(opCtrl); imgControls.appendChild(opRow);
 
     const blurRow = document.createElement('div');
     blurRow.className = 'set-row';
     blurRow.innerHTML = '<div class="set-label">图片模糊度</div>';
     const blurCtrl = document.createElement('div');
     blurCtrl.className = 'set-control';
-    blurCtrl.appendChild(slider(theme.imageBlur, {
+    blurCtrl.appendChild(slider(params.imageBlur, {
       min: 0, max: 20, step: 1, format: (v) => v + 'px',
-    }, (v) => { theme.imageBlur = v; update(); }));
-    blurRow.appendChild(blurCtrl);
-    imgControls.appendChild(blurRow);
+    }, (v) => setParam('imageBlur', v)));
+    blurRow.appendChild(blurCtrl); imgControls.appendChild(blurRow);
 
     const fitRow = document.createElement('div');
     fitRow.className = 'set-row';
@@ -685,37 +614,27 @@ export function createSettings({ body, onApply }) {
     fitCtrl.className = 'set-control';
     fitCtrl.appendChild(segmented(
       [{ label: '铺满', value: 'cover' }, { label: '适应', value: 'contain' }, { label: '平铺', value: 'repeat' }],
-      theme.imageSize,
-      (v) => { theme.imageSize = v; update(); },
-      { small: true }
+      params.imageSize, (v) => setParam('imageSize', v), { small: true }
     ));
-    fitRow.appendChild(fitCtrl);
-    imgControls.appendChild(fitRow);
-
-    // 把控制区插到图片信息之后（在排版微调之前）
-    body.appendChild(imgControls);
-    syncImageThumb();
-    syncImgControls();
+    fitRow.appendChild(fitCtrl); imgControls.appendChild(fitRow);
+    wrap.appendChild(imgControls);
+    syncImageThumb(); syncImgControls();
 
     // 3) 排版微调
     const typoLabel = document.createElement('div');
     typoLabel.className = 'set-desc';
     typoLabel.style.marginTop = '10px';
-    typoLabel.textContent = '排版微调';
-    body.appendChild(typoLabel);
-
-    const t = theme.typography;
+    typoLabel.textContent = '排版';
+    wrap.appendChild(typoLabel);
+    const t = params.typography;
     const mkTypoRow = (label, control) => {
       const r = document.createElement('div');
       r.className = 'set-row';
       const l = document.createElement('div');
-      l.className = 'set-label';
-      l.textContent = label;
+      l.className = 'set-label'; l.textContent = label;
       const c = document.createElement('div');
-      c.className = 'set-control';
-      c.appendChild(control);
-      r.appendChild(l); r.appendChild(c);
-      body.appendChild(r);
+      c.className = 'set-control'; c.appendChild(control);
+      r.appendChild(l); r.appendChild(c); wrap.appendChild(r);
     };
     mkTypoRow('行高', slider(t.lineHeight, { min: 1.3, max: 2.1, step: 0.02, format: (v) => v.toFixed(2) },
       (v) => { t.lineHeight = v; update(); }));
@@ -733,9 +652,8 @@ export function createSettings({ body, onApply }) {
     activeLineCtrl.className = 'set-control';
     activeLineCtrl.appendChild(toggle(t.activeLine, (v) => { t.activeLine = v; update(); }));
     activeLineRow.appendChild(activeLineCtrl);
-    body.appendChild(activeLineRow);
+    wrap.appendChild(activeLineRow);
 
-    syncEnabled();
     return wrap;
   }
 
@@ -983,22 +901,6 @@ export function createSettings({ body, onApply }) {
     const g1 = group('外观', 'appearance');
     g1.appendChild(
       row(
-        '主题',
-        '跟随系统时随 macOS / Windows 的明暗设置切换',
-        segmented(
-          [
-            { label: '浅色', value: 'light' },
-            { label: '深色', value: 'dark' },
-            { label: '跟随系统', value: 'system' },
-          ],
-          prefs.themeMode,
-          (v) => apply('themeMode', v)
-        )
-      )
-    );
-
-    g1.appendChild(
-      row(
         '默认分屏',
         '左右或上下对照；也可以用状态栏按钮临时切换',
         segmented(
@@ -1014,14 +916,9 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g1);
 
     /* ---------------------------------------------------------- Theme Studio */
-    const gStudio = group('主题工作台', 'appearance');
+    const gStudio = group('主题', 'appearance');
     gStudio.appendChild(buildThemeStudioSection());
     body.appendChild(gStudio);
-
-    /* ---------------------------------------------------------- 自定义配色 */
-    const gColor = group('自定义配色', 'appearance');
-    gColor.appendChild(buildColorSchemesSection());
-    body.appendChild(gColor);
 
     /* ---------------------------------------------------------- 字体 */
     const g2 = group('字体', 'editor');
