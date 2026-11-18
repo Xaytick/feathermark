@@ -24,6 +24,28 @@ const MAX_CONTEXT = 6000;
 const TEXT_ATTACH_RE = /\.(md|markdown|txt|json|ya?ml|js|mjs|cjs|ts|tsx|jsx|css|html|htm|xml|csv|log|ini|conf|toml|sql|sh|py|rs|go|java|c|h|cpp|hpp|rb|php|swift|kt|scala|vue|svelte)$/i;
 
 // 聊天用问题模板。会修改文档的编辑能力统一放在 EDIT_TEMPLATES，避免重复入口。
+// 编辑器自我认知：注入 system prompt，让 Agent 知道这个编辑器支持什么、文档有什么约定。
+// 只保留「影响回答正确性」的事实（约 400 字），不写营销性描述，避免白白占用上下文预算。
+const EDITOR_KNOWLEDGE = [
+  '【编辑器环境】',
+  'FeatherMark 是本地 Markdown 编辑器（Tauri + CodeMirror 5 + remark 渲染管线）。Markdown 源码是唯一真相，预览由源码实时渲染。',
+  '支持的语法：',
+  '- 标准 Markdown + GFM：表格、任务列表 - [ ]、删除线 ~~x~~、自动链接、有序/无序列表',
+  '- 数学：行内 $...$、块级 $$...$$（KaTeX 渲染）',
+  '- 图表：```mermaid 围栏代码块',
+  '- 提示块：> [!NOTE] / [!TIP] / [!IMPORTANT] / [!WARNING] / [!CAUTION]，可接自定义标题',
+  '- 脚注 [^1]、定义列表（定义行以 ": " 开头）',
+  '- 围栏代码块按语言高亮（highlight.js）',
+  '文档约定：',
+  '- 图片写作 ![说明](assets/文件名.png)；本地图片存放在当前文档同目录的 assets/ 下',
+  '- 界面有源码 / 分屏 / 预览三种视图，预览模式可直接编辑；导出支持单文件 HTML、长图 PNG、PDF',
+  '【改动文档的约定】',
+  '- 行号必须严格取自「带行号的原文」，不要自行推算或重排',
+  '- 多条指令的先后顺序随意：编辑器会从文档末尾往前依次应用，不会互相影响行号',
+  '- 保留原文的缩进、列表符号与空行风格；只输出需要改动的行',
+  '- 代码围栏必须成对（``` 开闭各一个），否则后续内容会被当成代码',
+].join('\n');
+
 const TEMPLATES = [
   { label: '解释这段代码', prompt: '请解释当前代码块的作用、关键步骤和注意事项。如果有多段代码，优先解释光标附近的代码。' },
   { label: '生成大纲', prompt: '请基于当前文档生成一份简洁的大纲，并标出各章节之间的关系。' },
@@ -629,8 +651,11 @@ function numberedLines(lines, startNo) {
         numbered = numbered.slice(0, MAX_CONTEXT);
         clipped = true;
       }
-      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行。`);
+      const saved = !!ctx.path;
+      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行${saved ? '' : '（尚未保存到磁盘：无法插入本地图片，需先保存）'}。`);
       parts.push(hasSel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
+      const viewName = { editor: '源码', split: '分屏', preview: '预览（所见即所得）' }[prefs.viewMode] || '分屏';
+      parts.push(`用户当前视图：${viewName}。`);
       parts.push(`带行号的原文${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${numbered}`);
     }
     // 附件与文档上下文是两件事：关掉文档上下文时仍然要发送附件
@@ -739,6 +764,7 @@ function numberedLines(lines, startNo) {
       const system = [
         '你是 FeatherMark 编辑器内的 Markdown 协作 Agent。回答要简洁、具体、可执行。',
         '默认使用简体中文；用户用英文提问时用英文回答。',
+        EDITOR_KNOWLEDGE,
         '当用户要求修改文档/选区时，只输出编辑指令，不要输出解释或整篇文档：',
         'REPLACE 起-止\n新内容（可多行）\nDELETE 起-止\nINSERT N\n新内容（可多行）\nEND',
         '行号必须取自带行号的原文；只输出改动行，没改的行不要重复。只是问问题时正常回答，不要输出编辑指令。',
