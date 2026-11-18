@@ -3,6 +3,51 @@
 // 交互重心在「编辑 + 即时预览」，CM5 的模式/快捷键/查找光标 API 更直接。
 const CM = window.CodeMirror;
 
+const INDENT_UNIT = '  '; // Tab 缩进固定两个空格
+
+/**
+ * 给选中行（或光标所在行）在行首加 / 减两个空格。
+ * 不用 CM 的 indentSelection：那是按 mode 智能缩进，步进不一定是两个空格；
+ * 这里明确按行首操作，并保持光标相对位置的偏移。
+ */
+function indentLines(cm, add) {
+  const anchor = cm.getCursor('anchor');
+  const head = cm.getCursor('head');
+  const fromLine = Math.min(anchor.line, head.line);
+  const toLine = Math.max(anchor.line, head.line);
+  const headCh = head.ch;
+  const hadSelection = cm.somethingSelected();
+
+  let removed = 0; // 光标所在行实际减掉几个字符（用于校正光标位置）
+  cm.operation(() => {
+    for (let i = fromLine; i <= toLine; i++) {
+      const line = cm.getLine(i);
+      if (add) {
+        cm.replaceRange(INDENT_UNIT + line, { line: i, ch: 0 }, { line: i, ch: line.length });
+      } else {
+        // 减缩进：去掉行首最多两个空格（不足就删现有的），或删一个 tab；没有缩进则不动
+        if (line.startsWith(INDENT_UNIT)) {
+          cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: 2 });
+          if (i === head.line) removed = 2;
+        } else if (line.startsWith(' ')) {
+          const n = line.match(/^ */)[0].length;
+          cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: n });
+          if (i === head.line) removed = n;
+        } else if (line.startsWith('\t')) {
+          cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: 1 });
+          if (i === head.line) removed = 1;
+        }
+      }
+    }
+  });
+
+  if (hadSelection) return; // 多行选中时保持选区，CM 会自动按替换调整
+  // 单行：把光标移到新位置（加则右移 2，减则按实际去除量左移）
+  const line = cm.getLine(head.line) || '';
+  const delta = add ? 2 : -removed;
+  cm.setCursor({ line: head.line, ch: Math.max(0, Math.min(line.length, headCh + delta)) });
+}
+
 /**
  * 列表续行：基于当前行文本判断标记，不依赖 CM 的 mode state（gfm 模式下插件判断会失效）。
  * 支持多级有序/无序、任务项、引用；空列表项按 Enter 退出列表；有序项自动递增后续序号。
@@ -75,11 +120,8 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     extraKeys: {
       // 换行自动续写列表/任务/引用标记，保留缩进与序号递增
       Enter: (editor) => continueListLine(editor),
-      Tab: (editor) => {
-        if (editor.somethingSelected()) editor.indentSelection('add');
-        else editor.replaceSelection(' '.repeat(editor.getOption('tabSize')));
-      },
-      'Shift-Tab': (editor) => editor.indentSelection('subtract'),
+      Tab: (editor) => indentLines(editor, true),
+      'Shift-Tab': (editor) => indentLines(editor, false),
       'Cmd-/': 'toggleComment',
       'Ctrl-/': 'toggleComment',
     },
