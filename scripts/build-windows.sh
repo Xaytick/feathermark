@@ -5,7 +5,9 @@
 #   rustup component add llvm-tools-preview
 #   cargo install cargo-xwin --locked
 #   ln -s "$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | awk '/host:/{print $2}')/bin/llvm-ar" /usr/local/bin/llvm-lib
-# 说明：macOS 缺少 llvm-rc，用 scripts/fake-windres.py 代替（生成的 exe 无图标，功能完整）。
+# 说明：macOS 缺少 llvm-rc，用 scripts/fake-windres.py 代替资源编译；
+#       然后用 scripts/inject-manifest.py 给 exe 注入 Common Controls v6 manifest
+#       （否则运行时报「无法定位程序输入点 TaskDialogIndirect」）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SHIM="$(mktemp -d)"
@@ -22,6 +24,9 @@ PATH="$SHIM:$PATH" RC="$SHIM/windres" cargo xwin build --release --target x86_64
 
 EXE="$ROOT/src-tauri/target/x86_64-pc-windows-msvc/release/feathermark.exe"
 [ -f "$EXE" ] || { echo "exe 未生成" >&2; exit 1; }
+
+echo "==> 注入 Common Controls v6 manifest（修复 TaskDialogIndirect 报错）"
+python3 "$ROOT/scripts/inject-manifest.py" "$EXE" "$ROOT/scripts/feathermark.manifest"
 
 VERSION="$(grep -m1 '"version"' "$ROOT/package.json" | sed -E 's/.*"version": "([^"]+)".*/\1/')"
 TAG="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || echo "$VERSION")"
