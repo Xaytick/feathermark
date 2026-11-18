@@ -3,7 +3,7 @@
 // 交互重心在「编辑 + 即时预览」，CM5 的模式/快捷键/查找光标 API 更直接。
 const CM = window.CodeMirror;
 
-export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, onImage }) {
+export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, onImage, onContextMenu }) {
   const cm = CM.fromTextArea(textarea, {
     mode: 'gfm',
     theme: 'default',
@@ -50,6 +50,22 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
   cm.on('viewportChange', () => scheduleLive());
   cm.on('paste', (_, e) => handlePaste(e));
   cm.on('drop', (_, e) => handleDrop(e));
+
+  // 接管右键，交给宿主弹中文菜单（否则 WebView 原生菜单是英文的）
+  cm.getWrapperElement().addEventListener('contextmenu', (e) => {
+    if (!onContextMenu) return;
+    e.preventDefault();
+    const pos = cm.coordsChar({ left: e.clientX, top: e.clientY });
+    // 右键在文字上时把光标移到该处，符合常规编辑器行为
+    if (pos && cm.getCursor('head').line !== pos.line) cm.setCursor(pos);
+    onContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      hasSelection: cm.somethingSelected(),
+      editor: cm,
+      actions,
+    });
+  });
 
   async function bytesFromBlob(blob) {
     const buf = await blob.arrayBuffer();

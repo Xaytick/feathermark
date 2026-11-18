@@ -131,6 +131,49 @@ function applyLayout() {
   setTimeout(() => editor && editor.refresh(), 30);
 }
 
+// 编辑器右键：用应用自己的中文菜单替代 WebView 原生（英文）菜单
+function editorContextMenu({ x, y, hasSelection, editor: cm, actions }) {
+  const cut = async () => {
+    const text = cm.getSelection();
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); cm.replaceSelection(''); } catch (_) { cm.execCommand('cut'); }
+  };
+  const copy = async () => {
+    const text = cm.getSelection();
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); } catch (_) { cm.execCommand('copy'); }
+  };
+  const paste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) cm.replaceSelection(text);
+    } catch (_) {
+      toast('无法读取剪贴板，请用 ⌘V 粘贴', { error: true });
+    }
+  };
+  const items = [
+    { label: '撤销', hint: '⌘Z', onClick: () => cm.execCommand('undo') },
+    { label: '重做', hint: '⇧⌘Z', onClick: () => cm.execCommand('redo') },
+    { sep: true },
+    { label: '剪切', hint: '⌘X', disabled: !hasSelection, onClick: cut },
+    { label: '复制', hint: '⌘C', disabled: !hasSelection, onClick: copy },
+    { label: '粘贴', hint: '⌘V', onClick: paste },
+    { label: '全选', hint: '⌘A', onClick: () => cm.execCommand('selectAll') },
+    { sep: true },
+    { label: '加粗', hint: '⌘B', onClick: () => actions.bold() },
+    { label: '斜体', hint: '⌘I', onClick: () => actions.italic() },
+    { label: '行内代码', onClick: () => actions.code() },
+    { label: '插入链接', onClick: () => actions.link() },
+    { sep: true },
+    { label: '标题 1', onClick: () => actions.h1() },
+    { label: '标题 2', onClick: () => actions.h2() },
+    { label: '无序列表', onClick: () => actions.ul() },
+    { label: '任务列表', onClick: () => actions.task() },
+    { label: '引用', onClick: () => actions.quote() },
+  ];
+  ui.showContextMenu(x, y, items);
+}
+
 function setViewMode(mode) {
   prefs.viewMode = mode;
   savePrefs();
@@ -836,6 +879,7 @@ async function boot() {
     onCursor: updateCursor,
     onScroll: onEditorScroll,
     onImage: handleImageInsert,
+    onContextMenu: editorContextMenu,
   });
 
   // 即时渲染里内嵌图片：把 Markdown 里的相对路径解析成本地文件，交给 Tauri 的 asset 协议加载
@@ -857,6 +901,43 @@ async function boot() {
   });
   $('preview').addEventListener('click', (e) => preview.handleClick(e));
   $('preview-scroll').addEventListener('scroll', onPreviewScroll, { passive: true });
+
+  // 预览区右键：同样用中文菜单替代 WebView 原生英文菜单
+  $('preview').addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const img = e.target.closest('img');
+    const link = e.target.closest('a');
+    const selected = String(window.getSelection() || '').trim();
+    const items = [];
+    if (selected) {
+      items.push({ label: '复制选中文字', onClick: () => navigator.clipboard.writeText(selected).catch(() => {}) });
+      items.push({ sep: true });
+    }
+    if (img) {
+      const src = img.dataset.localPath || img.src;
+      items.push({ label: '查看图片', onClick: () => ui.openLightbox(img.src) });
+      items.push({ label: '复制图片路径', onClick: () => navigator.clipboard.writeText(src).catch(() => {}) });
+      items.push({ sep: true });
+    }
+    if (link) {
+      const href = link.getAttribute('href') || '';
+      if (href) {
+        items.push({ label: '复制链接地址', onClick: () => navigator.clipboard.writeText(href).catch(() => {}) });
+        if (/^https?:/i.test(href)) {
+          items.push({ label: '在浏览器打开', onClick: () => ipc.openPath(href).catch(() => {}) });
+        }
+        items.push({ sep: true });
+      }
+    }
+    items.push({ label: '全选预览内容', onClick: () => {
+      const range = document.createRange();
+      range.selectNodeContents($('preview'));
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } });
+    ui.showContextMenu(e.clientX, e.clientY, items);
+  });
 
   // 标签
   tabs = createTabs({
