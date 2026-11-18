@@ -650,8 +650,13 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 .markdown-body li { margin: 0.26em 0; }
 .markdown-body li > p { margin: 0.3em 0; }
 .markdown-body li::marker { color: var(--text-faint); }
-/* 列表层级：有序用强调色数字、无序按层级换 marker，嵌套更清晰 */
+/* 列表层级：有序用强调色、无序按层级换 marker，嵌套更清晰 */
 .markdown-body ol > li::marker { color: var(--accent); font-variant-numeric: tabular-nums; }
+/* Typora 式分级序号：1. → a. → i. → A. → I. 循环（源码仍是数字，仅渲染显示切换） */
+.markdown-body ol > li > ol { list-style-type: lower-alpha; }
+.markdown-body ol > li > ol > li > ol { list-style-type: lower-roman; }
+.markdown-body ol > li > ol > li > ol > li > ol { list-style-type: upper-alpha; }
+.markdown-body ol > li > ol > li > ol > li > ol > li > ol { list-style-type: upper-roman; }
 .markdown-body ul > li::marker { color: var(--text-dim); }
 .markdown-body ul ul > li::marker { color: var(--accent); }
 .markdown-body ul ul ul > li::marker { color: var(--text); }
