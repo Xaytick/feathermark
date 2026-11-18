@@ -650,8 +650,22 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 .markdown-body li { margin: 0.26em 0; }
 .markdown-body li > p { margin: 0.3em 0; }
 .markdown-body li::marker { color: var(--text-faint); }
-.markdown-body ul.contains-task-list { padding-left: 1.1em; list-style: none; }
-.markdown-body .task-list-item { display: flex; align-items: baseline; gap: 6px; }
+/* 列表层级：有序用强调色数字、无序按层级换 marker，嵌套更清晰 */
+.markdown-body ol > li::marker { color: var(--accent); font-variant-numeric: tabular-nums; }
+.markdown-body ul > li::marker { color: var(--text-dim); }
+.markdown-body ul ul > li::marker { color: var(--accent); }
+.markdown-body ul ul ul > li::marker { color: var(--text); }
+.markdown-body li > ul, .markdown-body li > ol { margin: 0.2em 0 0.2em 0.15em; }
+.markdown-body ul.contains-task-list,
+.markdown-body li > ul.contains-task-list { padding-left: 1.1em; list-style: none; }
+.markdown-body .task-list-item { display: flex; align-items: baseline; gap: 7px; }
+.markdown-body .task-list-item > input[type='checkbox'] { margin-right: 0; }
+/* 已完成任务：文字淡化 + 删除线，视觉上区分状态 */
+.markdown-body .task-list-item:has(> input[type='checkbox']:checked) {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-faint);
+}
 .markdown-body input[type='checkbox'] {
   appearance: none;
   width: 13px;
@@ -1932,6 +1946,13 @@ html[data-theme-studio] .markdown-body strong { color: var(--ed-strong, inherit)
 html[data-theme-studio] .markdown-body em { color: var(--ed-em, inherit); }
 html[data-theme-studio] .markdown-body del,
 html[data-theme-studio] .markdown-body li::marker { color: var(--ed-fg-faint); }
+html[data-theme-studio] .markdown-body ol > li::marker { color: var(--ed-accent); }
+html[data-theme-studio] .markdown-body ul ul > li::marker { color: var(--ed-accent); }
+html[data-theme-studio] .markdown-body .task-list-item:has(> input[type='checkbox']:checked) {
+  color: var(--ed-fg-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--ed-fg-faint);
+}
 html[data-theme-studio] .markdown-body blockquote {
   color: var(--ed-quote);
   border-left-color: var(--ed-border);

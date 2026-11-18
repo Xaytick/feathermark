@@ -1666,6 +1666,30 @@ function unifiedToHtml(md) {
 // 处理时跳过围栏代码块（``` / ~~~）内部，避免改动其中内容。
 // 对已是 CommonMark 合规缩进的文档结果幂等。
 // ============================================================
+/**
+ * 空任务项归一化：GFM 只把「- [ ] 描述」识别成任务列表，纯 `- [ ]`（后面没字）会被
+ * 当成普通列表项、字面显示 "[ ]"。给空任务项补一个不占视觉空间的占位（&nbsp;），
+ * 让 checkbox 正常渲染。逐行替换、行数不变，不影响 data-source-line 行号映射。
+ * 围栏代码块内的行跳过，避免改动代码文本。
+ */
+function normalizeEmptyTaskItems(content) {
+  const lines = String(content == null ? '' : content).split('\n');
+  let fence = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fm = line.match(/^(\s*)(`{3,}|~{3,})/);
+    if (fm) {
+      if (!fence) fence = fm[2][0];
+      else if (fm[2][0] === fence) fence = null;
+      continue;
+    }
+    if (fence) continue;
+    // 列表标记（可缩进）+ [ ]/[x] + 行尾（仅空白）→ 补占位
+    lines[i] = line.replace(/^(\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\])(\s*)$/, '$1 &nbsp;');
+  }
+  return lines.join('\n');
+}
+
 function normalizeListIndentation(content, tabSize) {
   const ts = tabSize && tabSize > 0 ? tabSize : 4;
   const lines = content.split('\n');
@@ -1818,6 +1842,9 @@ function renderMarkdown(content, options) {
 
   // 0. Convert GitHub-style math fences (```math/```latex/```tex) → $$...$$ blocks
   content = convertMathFences(content);
+
+  // 0.25 空任务项补占位，让 - [ ]（无描述）也能渲染成 checkbox
+  content = normalizeEmptyTaskItems(content);
 
   // 0.5 列表缩进归一化：把「每 tabSize 空格升一级」模型转换为 CommonMark 列对齐模型，
   // 让有序列表深层嵌套按用户预期工作，并消除过缩进产生的代码块。
@@ -1985,7 +2012,8 @@ function renderMarkdownBlocks(content, options) {
   const mdRaw = String(content == null ? '' : content);
   if (!mdRaw.trim()) return [];
   // 与 renderMarkdown 主流程一致：先统一换行，避免 \r 污染行首判定与行数
-  const md = mdRaw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  // 空任务项补占位，让 - [ ]（无描述）也能被 remark-gfm 识别为 checkbox
+  const md = normalizeEmptyTaskItems(mdRaw.replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
   const lines = md.split('\n');
   // ⚠️ 必须先经 guardMathBlocks 保护公式区再做 remark 解析切块（与 renderMarkdown 主流程同一保护）：
   // 展示公式内部可以含「长得像 CommonMark 语法」的行——如矩阵乘法里的 `=` 行，remark 会把它当

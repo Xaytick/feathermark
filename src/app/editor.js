@@ -3,6 +3,58 @@
 // 交互重心在「编辑 + 即时预览」，CM5 的模式/快捷键/查找光标 API 更直接。
 const CM = window.CodeMirror;
 
+/**
+ * 列表续行：基于当前行文本判断标记，不依赖 CM 的 mode state（gfm 模式下插件判断会失效）。
+ * 支持多级有序/无序、任务项、引用；空列表项按 Enter 退出列表；有序项自动递增后续序号。
+ */
+function continueListLine(cm) {
+  // 多光标时逐个处理（这里按常规单光标实现，多光标回退到默认换行）
+  if (cm.listSelections().length > 1) return CM.Pass;
+  const pos = cm.getCursor('head');
+  const line = cm.getLine(pos.line) || '';
+  // 光标必须在行尾（或标记后）才续行；行首按普通换行
+  if (cm.somethingSelected() || pos.ch < line.length) return CM.Pass;
+
+  // 行首标记：缩进 + (引用 | 无序 | 任务 | 有序) + 分隔空白
+  const m = line.match(/^(\s*)(>[> ]*|[-*+] \[[ xX]\]|[-*+]|(\d+)[.)])(\s+)/);
+  if (!m) return CM.Pass;
+  const indent = m[1];
+  const marker = m[2];
+  const rest = line.slice(m[0].length);
+
+  // 空列表项（标记后无内容）→ 删除标记，退出列表
+  if (!rest.trim()) {
+    cm.replaceRange('', { line: pos.line, ch: 0 }, { line: pos.line, ch: line.length });
+    return;
+  }
+
+  let nextMarker = marker;
+  if (/^\d/.test(marker)) {
+    // 有序项：序号 +1（保留分隔符 . 或 )）
+    const num = parseInt(m[3], 10);
+    const sep = marker.slice(String(num).length);
+    nextMarker = (num + 1) + sep;
+  } else if (/\[[ xX]\]/.test(marker)) {
+    // 任务项：续写为未勾选
+    nextMarker = marker.replace(/\[[xX]\]/, '[ ]');
+  }
+  const gap = m[4] || ' ';
+  cm.replaceSelection('\n' + indent + nextMarker + gap);
+
+  // 递增后续同缩进的有序项（只处理紧随其后、同级的连续有序行）
+  if (/^\d/.test(marker)) {
+    const startNum = parseInt(m[3], 10);
+    let expected = startNum + 2; // 当前插入的是 startNum+1，下一行应是 +2
+    for (let i = pos.line + 2; i < cm.lineCount(); i++) {
+      const l = cm.getLine(i) || '';
+      const om = l.match(new RegExp('^' + indent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)([.)])(\\s+)'));
+      if (!om) break;
+      cm.replaceRange(String(expected) + om[2], { line: i, ch: indent.length }, { line: i, ch: indent.length + om[1].length + om[2].length });
+      expected++;
+    }
+  }
+}
+
 export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, onImage, onContextMenu }) {
   const cm = CM.fromTextArea(textarea, {
     mode: 'gfm',
@@ -21,6 +73,8 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     cursorBlinkRate: 530,
     spellcheck: !!prefs.spellcheck,
     extraKeys: {
+      // 换行自动续写列表/任务/引用标记，保留缩进与序号递增
+      Enter: (editor) => continueListLine(editor),
       Tab: (editor) => {
         if (editor.somethingSelected()) editor.indentSelection('add');
         else editor.replaceSelection(' '.repeat(editor.getOption('tabSize')));
