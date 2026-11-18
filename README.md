@@ -148,6 +148,18 @@ npm run build        # 出正式包（.app / .msi / .deb，取决于当前平台
 npm run assets       # 只重新生成 src/lib 下的 bundle 与静态资源
 ```
 
+**在 macOS 上交叉编译 Windows 便携版**（产出绿色 exe + zip，无需 Windows 机器）：
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+rustup component add llvm-tools-preview
+cargo install cargo-xwin --locked
+./scripts/build-windows.sh   # 自动补齐链接器 shim、编译、打包成 FeatherMark-<tag>-windows-x64.zip
+```
+
+macOS 缺少 llvm-rc，脚本用 `scripts/fake-windres.py` 代替（生成的 exe **未嵌入应用图标**，功能完整）。
+运行环境需要 Windows 10/11 64 位 + Edge WebView2（多数系统已预装）。
+
 目录结构：
 
 ```
