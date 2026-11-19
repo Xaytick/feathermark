@@ -84,18 +84,45 @@ function continueListLine(cm) {
     nextMarker = marker.replace(/\[[xX]\]/, '[ ]');
   }
   const gap = m[4] || ' ';
-  cm.replaceSelection('\n' + indent + nextMarker + gap);
+  const baseW = indent.length;
 
-  // 递增后续同缩进的有序项（只处理紧随其后、同级的连续有序行）
+  // 若当前项带子项（后续行缩进更深），新项要插在整棵子树之后，而非插在子项前面——
+  // 否则原来的孙项会被新项"收养"，层级结构就乱了（分屏编辑时最明显）。
+  let subtreeEnd = pos.line; // 当前项（及其子树）最后一行的行号
+  for (let i = pos.line + 1; i < cm.lineCount(); i++) {
+    const l = cm.getLine(i) || '';
+    if (!l.trim()) break;
+    const w = l.match(/^\s*/)[0].length;
+    if (w > baseW) subtreeEnd = i;     // 更深缩进 = 当前项的子树
+    else break;                        // 同级或更浅 → 子树结束
+  }
+
+  // 在子树末尾插入"换行 + 新项"，新项独占一行；光标落在新项文字末尾
+  const newLine = indent + nextMarker + gap;
+  cm.replaceRange('\n' + newLine, { line: subtreeEnd, ch: (cm.getLine(subtreeEnd) || '').length });
+  const insertLine = subtreeEnd + 1;
+  cm.setCursor({ line: insertLine, ch: newLine.length });
+
+  // 递增后续同级有序项：从插入行之后扫描，跳过嵌套子项，遇空行/更浅缩进停止。
   if (/^\d/.test(marker)) {
     const startNum = parseInt(m[3], 10);
-    let expected = startNum + 2; // 当前插入的是 startNum+1，下一行应是 +2
-    for (let i = pos.line + 2; i < cm.lineCount(); i++) {
+    let expected = startNum + 2;
+    for (let i = insertLine + 1; i < cm.lineCount(); i++) {
       const l = cm.getLine(i) || '';
-      const om = l.match(new RegExp('^' + indent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)([.)])(\\s+)'));
-      if (!om) break;
-      cm.replaceRange(String(expected) + om[2], { line: i, ch: indent.length }, { line: i, ch: indent.length + om[1].length + om[2].length });
-      expected++;
+      if (!l.trim()) break;
+      const lm = l.match(/^(\s*)(\d+)([.)])(\s+)/);
+      if (lm) {
+        const w = lm[1].length;
+        if (w < baseW) break;
+        if (w > baseW) continue;
+        cm.replaceRange(String(expected) + lm[3],
+          { line: i, ch: w }, { line: i, ch: w + lm[2].length + lm[3].length });
+        expected++;
+        continue;
+      }
+      if (/^\s*[-*+]\s/.test(l)) continue;
+      if ((l.match(/^\s*/)[0].length) > baseW) continue;
+      break;
     }
   }
 }
