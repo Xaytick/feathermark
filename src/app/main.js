@@ -85,7 +85,6 @@ function applyTheme() {
   applyThemeStudio(root);
   $('hljs-light').disabled = mode === 'dark';
   $('hljs-dark').disabled = mode !== 'dark';
-  $('btn-theme').innerHTML = `<svg viewBox="0 0 24 24"><use href="#${mode === 'dark' ? 'i-sun' : 'i-moon'}" /></svg>`;
   if (changed) {
     if (preview) preview.refreshMermaidTheme(mode === 'dark');
     if (preview && activeTab()) scheduleRender(true);
@@ -892,7 +891,6 @@ function selectPane(name) {
 async function boot() {
   state.os = await ipc.getPlatform().catch(() => 'linux');
   document.documentElement.dataset.os = state.os;
-  $('btn-theme').title = '切换主题';
 
   applyTheme();
   applyFonts();
@@ -1063,15 +1061,6 @@ async function boot() {
   $('btn-mode-preview').addEventListener('click', () => setViewMode('preview'));
   $('btn-chat').addEventListener('click', () => chat.toggle());
   $('sb-chat').addEventListener('click', () => chat.toggle());
-  $('btn-theme').addEventListener('click', () => {
-    // 切换明暗：选一个与当前基调相反的内置主题（浅色 ↔ 深色）
-    const cur = resolveActiveTheme();
-    const target = PRESETS.find((p) => p.tone !== cur.tone) || PRESETS[0];
-    prefs.theme.active = target.id;
-    savePrefs();
-    applyTheme();
-    settings.render();
-  });
   $('btn-menu').addEventListener('click', (e) => {
     e.stopPropagation();
     openMoreMenu();

@@ -9,7 +9,7 @@ const DICT = {
     // 标题栏 / 工具栏
     'tb.new': '新建 (⌘N)', 'tb.open': '打开文件 (⌘O)', 'tb.folder': '打开文件夹',
     'tb.editor': '仅编辑', 'tb.split': '分屏', 'tb.preview': '仅预览',
-    'tb.chat': 'Agent 对话 (⌘L)', 'tb.theme': '切换主题', 'tb.more': '更多',
+    'tb.chat': 'Agent 对话 (⌘L)', 'tb.more': '更多',
     'tb.minimize': '最小化', 'tb.maximize': '最大化', 'tb.close': '关闭',
     // 侧栏
     'side.files': '文件', 'side.outline': '大纲', 'side.search': '搜索',
@@ -53,7 +53,7 @@ const DICT = {
   en: {
     'tb.new': 'New (⌘N)', 'tb.open': 'Open File (⌘O)', 'tb.folder': 'Open Folder',
     'tb.editor': 'Editor Only', 'tb.split': 'Split View', 'tb.preview': 'Preview Only',
-    'tb.chat': 'Agent Chat (⌘L)', 'tb.theme': 'Toggle Theme', 'tb.more': 'More',
+    'tb.chat': 'Agent Chat (⌘L)', 'tb.more': 'More',
     'tb.minimize': 'Minimize', 'tb.maximize': 'Maximize', 'tb.close': 'Close',
     'side.files': 'Files', 'side.outline': 'Outline', 'side.search': 'Search',
     'side.noFolder': 'No folder opened', 'side.refresh': 'Refresh',
