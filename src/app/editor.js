@@ -5,6 +5,56 @@ const CM = window.CodeMirror;
 
 const INDENT_UNIT = '  '; // Tab 缩进固定两个空格
 
+/** 判断一行是否是列表项（有序 / 无序 / 任务），返回 { indent, ordered } 或 null。 */
+function listLineInfo(text) {
+  const m = text.match(/^(\s*)(?:(\d+)[.)]|[-*+])(\s+)/);
+  if (!m) return null;
+  return { indent: m[1].replace(/\t/g, '  ').length, ordered: m[2] !== undefined };
+}
+
+/**
+ * 缩进变化后，重排 actionLine 所在的那一棵有序列表的标号。
+ * 只处理该列表块（上下以空行 / 非列表行为界），不影响文档里其他独立列表。
+ * 按缩进层级用栈维护计数器：同层递增，进入更深缩进开新层（从 1 起），回到浅层弹栈。
+ */
+function renumberOrderedList(cm, actionLine) {
+  const isList = (i) => {
+    const t = cm.getLine(i) || '';
+    return t.trim() !== '' && listLineInfo(t) !== null;
+  };
+  if (!isList(actionLine)) return;
+
+  // 向上找到列表块起点：连续列表行；允许中途有更深缩进的子项
+  let start = actionLine;
+  while (start > 0 && isList(start - 1)) start--;
+  // 向下找到列表块尾
+  let end = actionLine;
+  while (end < cm.lineCount() - 1 && isList(end + 1)) end++;
+
+  const stack = []; // [{ indent, num }]
+  cm.operation(() => {
+    for (let i = start; i <= end; i++) {
+      const text = cm.getLine(i) || '';
+      const info = listLineInfo(text);
+      if (!info || !info.ordered) continue;
+      const indent = info.indent;
+      while (stack.length && stack[stack.length - 1].indent > indent) stack.pop();
+      let num;
+      if (stack.length && stack[stack.length - 1].indent === indent) {
+        num = stack[stack.length - 1].num + 1;
+        stack[stack.length - 1].num = num;
+      } else {
+        num = 1;
+        stack.push({ indent, num });
+      }
+      const lead = text.match(/^\s*/)[0];
+      const rest = text.slice(lead.length);
+      cm.replaceRange(lead + num + rest.slice(rest.match(/^\d+/)[0].length),
+        { line: i, ch: 0 }, { line: i, ch: text.length });
+    }
+  });
+}
+
 /**
  * 给选中行（或光标所在行）在行首加 / 减两个空格。
  * 不用 CM 的 indentSelection：那是按 mode 智能缩进，步进不一定是两个空格；
@@ -19,27 +69,36 @@ function indentLines(cm, add) {
   const hadSelection = cm.somethingSelected();
 
   let removed = 0; // 光标所在行实际减掉几个字符（用于校正光标位置）
+  let changed = false;
   cm.operation(() => {
     for (let i = fromLine; i <= toLine; i++) {
       const line = cm.getLine(i);
       if (add) {
         cm.replaceRange(INDENT_UNIT + line, { line: i, ch: 0 }, { line: i, ch: line.length });
+        changed = true;
       } else {
         // 减缩进：去掉行首最多两个空格（不足就删现有的），或删一个 tab；没有缩进则不动
         if (line.startsWith(INDENT_UNIT)) {
           cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: 2 });
           if (i === head.line) removed = 2;
+          changed = true;
         } else if (line.startsWith(' ')) {
           const n = line.match(/^ */)[0].length;
           cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: n });
           if (i === head.line) removed = n;
+          changed = true;
         } else if (line.startsWith('\t')) {
           cm.replaceRange('', { line: i, ch: 0 }, { line: i, ch: 1 });
           if (i === head.line) removed = 1;
+          changed = true;
         }
       }
     }
   });
+
+  // 缩进改了，重排受影响的有序列表标号（同层级从 1 开始、连续递增）。
+  // 必须在上面的 operation 结束后调用：嵌套 operation 内 cm.replaceRange 的行为不可靠。
+  if (changed) renumberOrderedList(cm, head.line);
 
   if (hadSelection) return; // 多行选中时保持选区，CM 会自动按替换调整
   // 单行：把光标移到新位置（加则右移 2，减则按实际去除量左移）
