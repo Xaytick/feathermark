@@ -17,6 +17,7 @@ import { createSettings } from './settings.js';
 import { createChat } from './chat.js';
 import * as exporters from './exporters.js';
 import * as ui from './ui.js';
+import { t as tr, locale as uiLocale, setLocale, applyStatic } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const basename = (p) => (p || '').split(/[\\/]/).pop() || p;
@@ -148,28 +149,28 @@ function editorContextMenu({ x, y, hasSelection, editor: cm, actions }) {
       const text = await navigator.clipboard.readText();
       if (text) cm.replaceSelection(text);
     } catch (_) {
-      toast('无法读取剪贴板，请用 ⌘V 粘贴', { error: true });
+      toast(tr('edit.pasteFail'), { error: true });
     }
   };
   const items = [
-    { label: '撤销', hint: '⌘Z', onClick: () => cm.execCommand('undo') },
-    { label: '重做', hint: '⇧⌘Z', onClick: () => cm.execCommand('redo') },
+    { label: tr('edit.undo'), hint: '⌘Z', onClick: () => cm.execCommand('undo') },
+    { label: tr('edit.redo'), hint: '⇧⌘Z', onClick: () => cm.execCommand('redo') },
     { sep: true },
-    { label: '剪切', hint: '⌘X', disabled: !hasSelection, onClick: cut },
-    { label: '复制', hint: '⌘C', disabled: !hasSelection, onClick: copy },
-    { label: '粘贴', hint: '⌘V', onClick: paste },
-    { label: '全选', hint: '⌘A', onClick: () => cm.execCommand('selectAll') },
+    { label: tr('edit.cut'), hint: '⌘X', disabled: !hasSelection, onClick: cut },
+    { label: tr('edit.copy'), hint: '⌘C', disabled: !hasSelection, onClick: copy },
+    { label: tr('edit.paste'), hint: '⌘V', onClick: paste },
+    { label: tr('edit.selectAll'), hint: '⌘A', onClick: () => cm.execCommand('selectAll') },
     { sep: true },
-    { label: '加粗', hint: '⌘B', onClick: () => actions.bold() },
-    { label: '斜体', hint: '⌘I', onClick: () => actions.italic() },
-    { label: '行内代码', onClick: () => actions.code() },
-    { label: '插入链接', onClick: () => actions.link() },
+    { label: tr('edit.bold'), hint: '⌘B', onClick: () => actions.bold() },
+    { label: tr('edit.italic'), hint: '⌘I', onClick: () => actions.italic() },
+    { label: tr('edit.inlineCode'), onClick: () => actions.code() },
+    { label: tr('edit.insertLink'), onClick: () => actions.link() },
     { sep: true },
-    { label: '标题 1', onClick: () => actions.h1() },
-    { label: '标题 2', onClick: () => actions.h2() },
-    { label: '无序列表', onClick: () => actions.ul() },
-    { label: '任务列表', onClick: () => actions.task() },
-    { label: '引用', onClick: () => actions.quote() },
+    { label: tr('edit.h1'), onClick: () => actions.h1() },
+    { label: tr('edit.h2'), onClick: () => actions.h2() },
+    { label: tr('edit.ul'), onClick: () => actions.ul() },
+    { label: tr('edit.task'), onClick: () => actions.task() },
+    { label: tr('edit.quote'), onClick: () => actions.quote() },
   ];
   ui.showContextMenu(x, y, items);
 }
@@ -605,36 +606,73 @@ function setupFind() {
 }
 
 /* ================================================================= 菜单 */
+/** 原生菜单项点击分发：菜单 id → 应用动作（与工具栏/快捷键共用同一批函数）。 */
+function handleMenuAction(id) {
+  const cm = editor && editor.cm;
+  switch (id) {
+    case 'file.new': return newFile();
+    case 'file.open': return pickAndOpen();
+    case 'file.open_folder': return pickFolderAndOpen();
+    case 'file.save': return saveTab();
+    case 'file.save_as': return saveTab(activeTab(), { as: true });
+    case 'file.export_html': return doExport('html');
+    case 'file.export_png': return doExport('png');
+    case 'file.export_pdf': return doExport('pdf');
+    case 'file.close': return state.activeId && closeTab(state.activeId);
+    case 'edit.undo': return cm && cm.execCommand('undo');
+    case 'edit.redo': return cm && cm.execCommand('redo');
+    case 'edit.cut': return cm && navigator.clipboard.writeText(cm.getSelection()).then(() => cm.replaceSelection(''));
+    case 'edit.copy': return cm && navigator.clipboard.writeText(cm.getSelection());
+    case 'edit.paste': return cm && navigator.clipboard.readText().then((t) => cm.replaceSelection(t)).catch(() => {});
+    case 'edit.select_all': return cm && cm.execCommand('selectAll');
+    case 'edit.find': return find && find.open(false);
+    case 'edit.find_in_files': return selectPane('search');
+    case 'edit.settings': return openSettings();
+    case 'view.editor': return setViewMode('editor');
+    case 'view.split': return setViewMode('split');
+    case 'view.preview': return setViewMode('preview');
+    case 'view.sidebar':
+      prefs.sidebarVisible = !prefs.sidebarVisible;
+      savePrefs();
+      applyLayout();
+      return;
+    case 'view.outline': return selectPane('outline');
+    case 'view.devtools': return ipc.openDevtools().catch(() => {});
+    case 'help.shortcuts': return openSettings({ section: 'about' });
+    default: return undefined;
+  }
+}
+
 function openMoreMenu() {
   const anchor = $('btn-menu');
   ui.showMenu(anchor, [
-    { label: '新建', hint: '⌘N', onClick: () => newFile() },
-    { label: '打开文件…', hint: '⌘O', onClick: () => pickAndOpen() },
-    { label: '打开文件夹…', onClick: () => pickFolderAndOpen() },
-    { label: 'Agent 编辑模板…', hint: '⌘J', onClick: () => chat && chat.openEditor(null, { source: 'shortcut' }) },
+    { label: tr('menu.new'), hint: '⌘N', onClick: () => newFile() },
+    { label: tr('menu.openFile'), hint: '⌘O', onClick: () => pickAndOpen() },
+    { label: tr('menu.openFolder'), onClick: () => pickFolderAndOpen() },
+    { label: tr('menu.chatTemplate'), hint: '⌘J', onClick: () => chat && chat.openEditor(null, { source: 'shortcut' }) },
     { sep: true },
-    { label: '保存', hint: '⌘S', onClick: () => saveTab() },
-    { label: '另存为…', hint: '⇧⌘S', onClick: () => saveTab(activeTab(), { as: true }) },
+    { label: tr('menu.save'), hint: '⌘S', onClick: () => saveTab() },
+    { label: tr('menu.saveAs'), hint: '⇧⌘S', onClick: () => saveTab(activeTab(), { as: true }) },
     { sep: true },
-    { title: '导出' },
-    { label: '导出 HTML', onClick: () => doExport('html') },
-    { label: '导出长图 PNG', onClick: () => doExport('png') },
-    { label: '导出 PDF', onClick: () => doExport('pdf') },
-    { label: '复制为富文本', onClick: () => exporters.copyRichHTML($('preview')) },
+    { title: tr('menu.export') },
+    { label: tr('menu.exportHtml'), onClick: () => doExport('html') },
+    { label: tr('menu.exportPng'), onClick: () => doExport('png') },
+    { label: tr('menu.exportPdf'), onClick: () => doExport('pdf') },
+    { label: tr('menu.copyRich'), onClick: () => exporters.copyRichHTML($('preview')) },
     { sep: true },
-    { label: '设置…', hint: '⌘,', onClick: () => openSettings() },
-    { label: '快速打开…', hint: '⌘P', onClick: () => quickopen.open() },
+    { label: tr('menu.settings'), hint: '⌘,', onClick: () => openSettings() },
+    { label: tr('menu.quickOpen'), hint: '⌘P', onClick: () => quickopen.open() },
     { sep: true },
-    { label: '开发者工具', onClick: () => ipc.openDevtools().catch(() => {}) },
-    { label: '退出', danger: true, onClick: () => ipc.quitApp().catch(() => {}) },
+    { label: tr('menu.devtools'), onClick: () => ipc.openDevtools().catch(() => {}) },
+    { label: tr('menu.quit'), danger: true, onClick: () => ipc.quitApp().catch(() => {}) },
   ]);
 }
 
 function tabMenu(tab, x, y) {
   ui.showContextMenu(x, y, [
-    { label: '关闭', hint: '⌘W', onClick: () => closeTab(tab.id) },
+    { label: tr('tab.close'), hint: '⌘W', onClick: () => closeTab(tab.id) },
     {
-      label: '关闭其他',
+      label: tr('tab.closeOthers'),
       onClick: () => {
         const keep = tab.id;
         state.tabs.filter((t) => t.id !== keep).forEach((t) => {
@@ -647,11 +685,11 @@ function tabMenu(tab, x, y) {
     },
     { sep: true },
     {
-      label: '复制路径',
+      label: tr('tab.copyPath'),
       onClick: () => tab.path && navigator.clipboard.writeText(tab.path).then(() => ui.toast('路径已复制')),
     },
     {
-      label: '在文件管理器中显示',
+      label: tr('tab.reveal'),
       onClick: () => tab.path && ipc.revealInFolder(tab.path, false).catch(() => {}),
     },
   ]);
@@ -692,6 +730,8 @@ function openSettings(opts) {
 
 function onPrefChange(key, value) {
   if (key === '__reset__') {
+    // 语言重置为中文：同步 i18n 与原生菜单
+    if (uiLocale() !== prefs.language) setLocale(prefs.language).catch(() => {});
     applyTheme();
     applyFonts();
     applyLayout();
@@ -1130,6 +1170,9 @@ async function boot() {
       for (const p of paths) await openPath(p);
     });
   } catch (_) {}
+
+  // 原生菜单栏点击（Rust 端 emit 的 menu-action）
+  listen('menu-action', (e) => handleMenuAction(String(e.payload || '')));
 
   // 单实例转交的文件
   listen('open-files', async (e) => {

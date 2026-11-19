@@ -48,6 +48,8 @@ export const getCliArgs = () => call('get_cli_args');
 export const windowAction = (action) => call('window_action', { action });
 export const quitApp = () => call('quit_app');
 export const openDevtools = () => call('open_devtools');
+export const setLanguage = (lang) => call('set_language', { lang });
+export const getLanguage = () => call('get_language');
 
 /* ------------------------------------------------------------------ AI */
 // 所有 AI 请求都经 Rust 转发：密钥只留在 Rust 侧的配置文件里，前端拿不到明文。

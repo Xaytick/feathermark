@@ -13,6 +13,7 @@ export const DEFAULT_THEME = {
 };
 
 export const DEFAULT_PREFS = {
+  language: 'zh', // 界面语言：zh | en（原生菜单栏随之切换）
   scheme: 'ink', // 兼容旧字段：自定义强调色 id（新主题模型下不再作为入口）
   theme: JSON.parse(JSON.stringify(DEFAULT_THEME)), // Theme Studio 配置
   editorFont: '',

@@ -5,6 +5,7 @@ import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange 
 import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
 import { PRESETS, CANVASES, getPreset, tokensFromColors, resolveParams, defaultParams, luminance } from './theme-presets.js';
 import { loadAndCompressImage } from './image-tools.js';
+import { locale, setLocale, t as tr } from './i18n.js';
 
 export function createSettings({ body, onApply }) {
   let fonts = null; // 系统字体列表，首次打开时才枚举（要解析上百个字体文件头）
@@ -42,10 +43,10 @@ export function createSettings({ body, onApply }) {
 
   // 左侧导航分区：id / 标题 / 说明。各分组通过 group(title, section) 归入对应分区。
   const SECTIONS = [
-    { id: 'appearance', label: '外观', hint: '主题 · 配色' },
-    { id: 'editor', label: '编辑器', hint: '字体 · 编辑' },
-    { id: 'ai', label: 'AI', hint: '模型 · 接口' },
-    { id: 'about', label: '关于', hint: '版本 · 快捷键' },
+    { id: 'appearance', label: tr('set.appearance'), hint: tr('set.theme') },
+    { id: 'editor', label: tr('set.editor'), hint: tr('set.editorHint') },
+    { id: 'ai', label: tr('set.ai'), hint: tr('set.ai') },
+    { id: 'about', label: tr('set.about'), hint: tr('set.aboutHint') },
   ];
 
   function buildNav() {
@@ -937,7 +938,19 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g2);
 
     /* ---------------------------------------------------------- 编辑 */
-    const g3 = group('编辑', 'editor');
+    const g3 = group(tr('set.editor'), 'editor');
+    // 界面语言：切换后原生菜单栏与 UI 文案同时更新
+    g3.appendChild(
+      row(
+        tr('set.language'),
+        tr('set.languageDesc'),
+        segmented(
+          [{ label: '中文', value: 'zh' }, { label: 'English', value: 'en' }],
+          locale(),
+          (v) => { setLocale(v).catch(() => {}); }
+        )
+      )
+    );
     g3.appendChild(
       row(
         '自动换行',

@@ -48,49 +48,49 @@
       </div>
       <div id="tabstrip" class="tabstrip"></div>
       <div class="tb-actions">
-        <button class="icon-btn" id="btn-new" title="新建 (⌘N)"><svg viewBox="0 0 24 24"><use href="#i-plus" /></svg></button>
-        <button class="icon-btn" id="btn-open" title="打开文件 (⌘O)"><svg viewBox="0 0 24 24"><use href="#i-file" /></svg></button>
-        <button class="icon-btn" id="btn-folder" title="打开文件夹"><svg viewBox="0 0 24 24"><use href="#i-folder" /></svg></button>
+        <button class="icon-btn" id="btn-new" title="新建 (⌘N)" data-i18n="tb.new" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-plus" /></svg></button>
+        <button class="icon-btn" id="btn-open" title="打开文件 (⌘O)" data-i18n="tb.open" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-file" /></svg></button>
+        <button class="icon-btn" id="btn-folder" title="打开文件夹" data-i18n="tb.folder" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-folder" /></svg></button>
         <span class="tb-sep"></span>
-        <button class="icon-btn" id="btn-mode-editor" title="仅编辑"><svg viewBox="0 0 24 24"><use href="#i-code" /></svg></button>
-        <button class="icon-btn" id="btn-mode-split" title="分屏"><svg viewBox="0 0 24 24"><use href="#i-split" /></svg></button>
-        <button class="icon-btn" id="btn-mode-preview" title="仅预览"><svg viewBox="0 0 24 24"><use href="#i-eye" /></svg></button>
+        <button class="icon-btn" id="btn-mode-editor" title="仅编辑" data-i18n="tb.editor" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-code" /></svg></button>
+        <button class="icon-btn" id="btn-mode-split" title="分屏" data-i18n="tb.split" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-split" /></svg></button>
+        <button class="icon-btn" id="btn-mode-preview" title="仅预览" data-i18n="tb.preview" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-eye" /></svg></button>
         <span class="tb-sep"></span>
-        <button class="icon-btn" id="btn-chat" title="Agent 对话 (⌘L)"><svg viewBox="0 0 24 24"><use href="#i-chat" /></svg></button>
-        <button class="icon-btn" id="btn-theme" title="切换主题"><svg viewBox="0 0 24 24"><use href="#i-moon" /></svg></button>
-        <button class="icon-btn" id="btn-menu" title="更多"><svg viewBox="0 0 24 24"><use href="#i-more" /></svg></button>
+        <button class="icon-btn" id="btn-chat" title="Agent 对话 (⌘L)" data-i18n="tb.chat" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-chat" /></svg></button>
+        <button class="icon-btn" id="btn-theme" title="切换主题" data-i18n="tb.theme" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-moon" /></svg></button>
+        <button class="icon-btn" id="btn-menu" title="更多" data-i18n="tb.more" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-more" /></svg></button>
       </div>
       <div class="win-controls" id="win-controls">
-        <button data-win="minimize" title="最小化"><svg viewBox="0 0 24 24"><use href="#i-minus" /></svg></button>
-        <button data-win="toggle-maximize" title="最大化"><svg viewBox="0 0 24 24"><use href="#i-max" /></svg></button>
-        <button data-win="close" class="win-close" title="关闭"><svg viewBox="0 0 24 24"><use href="#i-close" /></svg></button>
+        <button data-win="minimize" title="最小化" data-i18n="tb.minimize" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-minus" /></svg></button>
+        <button data-win="toggle-maximize" title="最大化" data-i18n="tb.maximize" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-max" /></svg></button>
+        <button data-win="close" class="win-close" title="关闭" data-i18n="tb.close" data-i18n-attr="title"><svg viewBox="0 0 24 24"><use href="#i-close" /></svg></button>
       </div>
     </header>
 
     <div id="body">
       <aside id="sidebar">
         <div class="side-tabs" role="tablist">
-          <button class="side-tab active" data-pane="files" title="文件">文件</button>
-          <button class="side-tab" data-pane="outline" title="大纲">大纲</button>
-          <button class="side-tab" data-pane="search" title="搜索">搜索</button>
+          <button class="side-tab active" data-pane="files" title="文件" data-i18n="side.files" data-i18n-attr="title">文件</button>
+          <button class="side-tab" data-pane="outline" title="大纲" data-i18n="side.outline" data-i18n-attr="title">大纲</button>
+          <button class="side-tab" data-pane="search" title="搜索" data-i18n="side.search" data-i18n-attr="title">搜索</button>
         </div>
         <div class="side-body">
           <div class="pane active" data-pane="files">
             <div class="pane-head">
-              <span id="workspace-name" class="pane-title">未打开文件夹</span>
-              <button class="mini-btn" id="btn-tree-refresh" title="刷新">⟳</button>
+              <span id="workspace-name" class="pane-title" data-i18n="side.noFolder">未打开文件夹</span>
+              <button class="mini-btn" id="btn-tree-refresh" title="刷新" data-i18n="side.refresh" data-i18n-attr="title">⟳</button>
             </div>
             <div id="tree" class="tree"></div>
           </div>
           <div class="pane" data-pane="outline">
-            <div class="pane-head"><span class="pane-title">大纲</span></div>
+            <div class="pane-head"><span class="pane-title" data-i18n="side.outline">大纲</span></div>
             <div id="outline" class="outline"></div>
           </div>
           <div class="pane" data-pane="search">
-            <div class="pane-head"><span class="pane-title">工作区搜索</span></div>
+            <div class="pane-head"><span class="pane-title" data-i18n="side.workspaceSearch">工作区搜索</span></div>
             <div class="search-bar">
-              <input id="search-input" type="search" placeholder="搜索内容…" spellcheck="false" />
-              <label class="chk" title="区分大小写"><input type="checkbox" id="search-case" />Aa</label>
+              <input id="search-input" type="search" placeholder="搜索内容…" data-i18n="side.searchPlaceholder" data-i18n-attr="placeholder" spellcheck="false" />
+              <label class="chk" title="区分大小写" data-i18n="side.caseSensitive" data-i18n-attr="title"><input type="checkbox" id="search-case" />Aa</label>
             </div>
             <div id="search-results" class="search-results"></div>
           </div>
@@ -108,11 +108,11 @@
           <div id="empty-state" class="empty-state">
             <svg class="empty-logo" viewBox="0 0 24 24"><use href="#i-feather" /></svg>
             <div class="empty-title">FeatherMark</div>
-            <div class="empty-sub">轻量 · 跨平台 · Markdown</div>
+            <div class="empty-sub" data-i18n="empty.tagline">轻量 · 跨平台 · Markdown</div>
             <div class="empty-actions">
-              <button class="btn" id="empty-new">新建文档 <kbd>⌘N</kbd></button>
-              <button class="btn ghost" id="empty-open">打开文件 <kbd>⌘O</kbd></button>
-              <button class="btn ghost" id="empty-folder">打开文件夹</button>
+              <button class="btn" id="empty-new" data-i18n="empty.new">新建文档 <kbd>⌘N</kbd></button>
+              <button class="btn ghost" id="empty-open" data-i18n="empty.open">打开文件 <kbd>⌘O</kbd></button>
+              <button class="btn ghost" id="empty-folder" data-i18n="empty.folder">打开文件夹</button>
             </div>
             <div id="recent-list" class="recent-list"></div>
           </div>

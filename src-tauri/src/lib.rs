@@ -14,6 +14,7 @@ use std::fs;
 use std::ops::Deref;
 use std::sync::Mutex;
 mod ai;
+mod menu;
 
 use tauri::{Emitter, Manager};
 
@@ -844,7 +845,15 @@ pub fn run() {
         }))
         .manage(WatcherState(Mutex::new(None)))
         .manage(ai::StreamCancels::default())
+        // 原生菜单栏（中英双语，语言持久化）。菜单项点击统一转成 menu-action 事件交给前端。
+        .menu(|app| menu::build_menu(app, menu::load_locale(app)))
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref().to_string();
+            let _ = app.emit("menu-action", id);
+        })
         .invoke_handler(tauri::generate_handler![
+            menu::set_language,
+            menu::get_language,
             open_devtools,
             get_cli_args,
             platform,
