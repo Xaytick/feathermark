@@ -175,10 +175,13 @@ pub fn ai_config_clear_key(app: tauri::AppHandle) -> Result<(), String> {
     save_config(&app, &cfg)
 }
 
+/// content 支持两种形态：纯文本字符串，或 OpenAI 多模态数组
+/// `[{"type":"text","text":"…"},{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}]`。
+/// 用 Value 原样透传给服务商，编辑器不解释其内容。
 #[derive(Deserialize, Serialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: serde_json::Value,
 }
 
 fn friendly_error(err: &reqwest::Error) -> String {
@@ -299,14 +302,19 @@ fn emit_stream(app: &tauri::AppHandle, request_id: &str, kind: &str, payload: se
     );
 }
 
-fn sse_error_hint(status: reqwest::StatusCode) -> &'static str {
-    match status.as_u16() {
+/// HTTP 状态码 → 可行动的中文提示。流式与一次性请求共用，避免两处提示漂移。
+fn error_hint(code: u16) -> &'static str {
+    match code {
         401 | 403 => "（API Key 无效或无权限）",
         404 => "（接口路径不对，Base URL 通常需要以 /v1 结尾）",
         429 => "（触发限流，稍后再试）",
         402 => "（账户余额不足）",
         _ => "",
     }
+}
+
+fn sse_error_hint(status: reqwest::StatusCode) -> &'static str {
+    error_hint(status.as_u16())
 }
 
 /// 流式聊天：把 OpenAI 兼容 SSE 转成 tauri 事件发给前端，同时返回最终结果。
@@ -507,13 +515,7 @@ pub async fn ai_chat(
 
     if !status.is_success() {
         // 把服务端的错误结构尽量原样带回（401 是 key 错，429 是限流，402 是欠费）
-        let hint = match status.as_u16() {
-            401 | 403 => "（API Key 无效或无权限）",
-            404 => "（接口路径不对，Base URL 通常需要以 /v1 结尾）",
-            429 => "（触发限流，稍后再试）",
-            402 => "（账户余额不足）",
-            _ => "",
-        };
+        let hint = error_hint(status.as_u16());
         return Err(format!(
             "接口返回 {} {}{}",
             status.as_u16(),
@@ -567,7 +569,7 @@ pub async fn ai_test(app: tauri::AppHandle) -> Result<serde_json::Value, String>
             app.clone(),
             vec![ChatMessage {
                 role: "user".into(),
-                content: "只回复两个字：可用".into(),
+                content: serde_json::json!("只回复两个字：可用"),
             }],
             Some(budget),
             Some(0.0),
@@ -639,8 +641,30 @@ mod tests {
     fn msg() -> Vec<ChatMessage> {
         vec![ChatMessage {
             role: "user".into(),
-            content: "hi".into(),
+            content: serde_json::json!("hi"),
         }]
+    }
+
+    #[test]
+    fn error_hints_cover_auth_path_rate_and_balance() {
+        assert!(error_hint(401).contains("API Key"));
+        assert!(error_hint(403).contains("API Key"));
+        assert!(error_hint(404).contains("Base URL"));
+        assert!(error_hint(429).contains("限流"));
+        assert!(error_hint(402).contains("余额"));
+        assert_eq!(error_hint(500), "");
+    }
+
+    #[test]
+    fn multimodal_content_passes_through_unchanged() {
+        let content = serde_json::json!([
+            { "type": "text", "text": "这张图是什么" },
+            { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAAA" } }
+        ]);
+        let msgs = vec![ChatMessage { role: "user".into(), content: content.clone() }];
+        let body = build_body(&AiConfig::default(), msgs, None, None).unwrap();
+        assert_eq!(body["messages"][0]["content"], content);
+        assert_eq!(body["messages"][0]["content"][1]["type"], "image_url");
     }
 
     #[test]

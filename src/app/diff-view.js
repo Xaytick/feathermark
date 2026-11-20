@@ -76,7 +76,7 @@ function splitCommon(oldText, newText) {
   };
 }
 
-function lineNode(text, kind, segments) {
+function lineNode(text, kind, segments, onEdit) {
   const row = document.createElement('div');
   row.className = 'dl ' + (kind === 'del' ? 'del' : kind === 'add' ? 'add' : '');
   const sign = document.createElement('span');
@@ -84,6 +84,25 @@ function lineNode(text, kind, segments) {
   sign.textContent = kind === 'del' ? '−' : kind === 'add' ? '+' : ' ';
   const body = document.createElement('span');
   body.className = 'dl-text';
+  // 建议的新增行可就地编辑：用户能在应用前微调 AI 的措辞。
+  if (kind === 'add') {
+    body.contentEditable = 'true';
+    body.spellcheck = false;
+    body.title = '可直接编辑这行建议';
+    if (onEdit) {
+      let currentText = text;
+      const commit = () => {
+        const next = body.innerText.replace(/\n/g, '');
+        currentText = next;
+        onEdit(next);
+      };
+      body.addEventListener('blur', commit);
+      body.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); body.blur(); }
+        if (e.key === 'Escape') { body.textContent = currentText; body.blur(); }
+      });
+    }
+  }
   if (segments) {
     body.appendChild(document.createTextNode(segments.pre));
     if (segments.mid) {
@@ -222,7 +241,9 @@ export function buildDiffView(oldText, newText) {
     if (row.type === 'del' && rows[idx + 1] && rows[idx + 1].type === 'add' && current && idx + 1 <= current.hunk.end) {
       const seg = splitCommon(row.text, rows[idx + 1].text);
       const n1 = lineNode(row.text, 'del', { pre: seg.oldPre, mid: seg.oldMid, post: seg.oldPost });
-      const n2 = lineNode(rows[idx + 1].text, 'add', { pre: seg.newPre, mid: seg.newMid, post: seg.newPost });
+      const addIdx = idx + 1;
+      const n2 = lineNode(rows[addIdx].text, 'add', { pre: seg.newPre, mid: seg.newMid, post: seg.newPost },
+        (next) => { rows[addIdx].text = next; });
       node.appendChild(n1);
       node.appendChild(n2);
       current.rowNodes.push(n1, n2);
@@ -231,7 +252,9 @@ export function buildDiffView(oldText, newText) {
     }
 
     const kind = row.type === 'same' ? '' : row.type;
-    const n = lineNode(row.text, kind, kind ? { pre: '', mid: row.text, post: '' } : null);
+    const thisIdx = idx;
+    const n = lineNode(row.text, kind, kind ? { pre: '', mid: row.text, post: '' } : null,
+      kind === 'add' ? (next) => { rows[thisIdx].text = next; } : null);
     node.appendChild(n);
     if (current) current.rowNodes.push(n);
   }

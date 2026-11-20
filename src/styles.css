@@ -1307,6 +1307,8 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 .dl.del .dl-sign { color: #e5484d; opacity: 1; }
 .dl.add { background: rgba(15, 138, 95, 0.11); }
 .dl.add .dl-sign { color: #0f8a5f; opacity: 1; }
+.dl.add .dl-text[contenteditable] { cursor: text; outline: none; border-bottom: 1px dashed rgba(15, 138, 95, 0.4); }
+.dl.add .dl-text[contenteditable]:focus { border-bottom-color: #0f8a5f; background: rgba(15, 138, 95, 0.06); }
 .dl-head {
   padding: 8px 14px 2px;
   font-size: 10.5px;
@@ -1748,6 +1750,9 @@ html[data-mode='dark'] {
 .chat-attach .ca-status { font-size: 9.5px; color: var(--text-faint); }
 .chat-attach .ca-status.error { color: #e5484d; }
 .chat-attach .ca-status.sent { color: #0f8a5f; }
+.chat-attach .ca-mode { font-size: 9.5px; padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text-faint); }
+.chat-attach .ca-mode:hover { color: var(--accent); border-color: var(--accent); }
+.chat-attach .ca-mode.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .chat-attach .ca-del { color: var(--text-faint); }
 .chat-attach .ca-del:hover { color: #e5484d; }
 

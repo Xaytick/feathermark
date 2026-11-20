@@ -2,8 +2,8 @@
 //
 // 设计取舍：
 // - 会话存 localStorage（按工作区隔离），不新建数据库；离线可用、重启可恢复。
-// - 附件只保存路径与文本摘要：图片给预览 URL，文本文件读前若干字符作为上下文；
-//   不把二进制塞进 localStorage，也不假设模型一定支持 vision。
+// - 附件不把二进制塞进 localStorage：图片默认只给路径（省 token），可切到多模态模式
+//   把图片以 data URL 随请求发送（需服务商支持 vision）；文本文件读前若干字符作摘要。
 // - AI 请求复用 ipc.aiChat（密钥仍只在 Rust 侧），失败不静默重试，直接显示可操作错误。
 import { listen } from '@tauri-apps/api/event';
 import * as ipc from './ipc.js';
@@ -18,7 +18,8 @@ import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toS
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const MAX_TEXT_ATTACH = 4000;
-const MAX_SESSIONS = 30;
+const MAX_SESSIONS = 30;          // 每个工作区的会话上限
+const MAX_SESSIONS_TOTAL = 120;   // 所有工作区合计的硬上限（防 localStorage 撑爆）
 const MAX_MESSAGES = 50;
 const MAX_CONTEXT = 6000;
 const TEXT_ATTACH_RE = /\.(md|markdown|txt|json|ya?ml|js|mjs|cjs|ts|tsx|jsx|css|html|htm|xml|csv|log|ini|conf|toml|sql|sh|py|rs|go|java|c|h|cpp|hpp|rb|php|swift|kt|scala|vue|svelte)$/i;
@@ -75,6 +76,9 @@ function save(key, value) {
   } catch (_) {}
 }
 const uid = () => 'c' + Math.random().toString(36).slice(2, 9);
+const imageMime = (path) => ({ jpg: 'jpeg', jpeg: 'jpeg', png: 'png', gif: 'gif', webp: 'webp', bmp: 'bmp', svg: 'svg+xml' }[
+  (path.split('.').pop() || 'png').toLowerCase()
+] || 'png');
 const shortTime = (ts) => {
   const d = new Date(ts);
   const today = new Date();
@@ -112,7 +116,10 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let allSessions = load(SESSION_KEY, []);
   let activeId = null;
   let attachments = [];
-  let includeContext = true;
+  // 上下文模式：doc=整篇文档 | selection=仅选区 | off=不带文档（附件仍发送）
+  const CONTEXT_MODE_KEY = 'feathermark.agent.context-mode.v1';
+  let contextMode = load(CONTEXT_MODE_KEY, 'doc');
+  if (!['doc', 'selection', 'off'].includes(contextMode)) contextMode = 'doc';
   let busy = false;
   let dropDepth = 0;
   let applyView = null;
@@ -132,11 +139,27 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
 
   function enforceSessionLimits() {
     let dropped = false;
-    if (allSessions.length > MAX_SESSIONS) {
-      allSessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      allSessions.length = MAX_SESSIONS;
-      dropped = true;
+    // 按工作区分别限额：旧实现全局截断，一个工作区会话多时会把别的工作区的会话删掉。
+    const groups = new Map();
+    for (const s of allSessions) {
+      const ws = s.workspace || '__global__';
+      if (!groups.has(ws)) groups.set(ws, []);
+      groups.get(ws).push(s);
     }
+    const kept = [];
+    for (const [ws, list] of groups) {
+      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      if (list.length > MAX_SESSIONS) dropped = true;
+      // 当前工作区优先保留；其余工作区各留 MAX_SESSIONS 个
+      for (const s of list.slice(0, MAX_SESSIONS)) kept.push(s);
+    }
+    // 全局硬上限：按更新时间保留最近的
+    if (kept.length > MAX_SESSIONS_TOTAL) {
+      dropped = true;
+      kept.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      kept.length = MAX_SESSIONS_TOTAL;
+    }
+    allSessions = kept;
     for (const s of allSessions) {
       if (s.messages && s.messages.length > MAX_MESSAGES) {
         s.messages = s.messages.slice(-MAX_MESSAGES);
@@ -151,7 +174,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
     save(SESSION_KEY, allSessions);
     if (dropped && Date.now() - lastLimitToast > 4000) {
       lastLimitToast = Date.now();
-      toast(`会话较多，已自动清理到 ${MAX_SESSIONS} 个会话 / 每会话 ${MAX_MESSAGES} 条消息`, { duration: 3200 });
+      toast(`会话较多，已按工作区清理到 ${MAX_SESSIONS} 个 / 每会话 ${MAX_MESSAGES} 条消息`, { duration: 3200 });
     }
   }
 
@@ -548,6 +571,29 @@ function numberedLines(lines, startNo) {
       status.className = 'ca-status ' + (a.status || 'ready');
       status.textContent =
         a.status === 'sending' ? '发送中' : a.status === 'sent' ? '已发送' : a.status === 'error' ? '失败' : '就绪';
+      // 图片附件可切换发送方式：只给路径（省 token）/ 以 data URL 发送（多模态）
+      if (a.isImage) {
+        const modeBtn = document.createElement('button');
+        modeBtn.className = 'ca-mode mini-btn' + (a.mode === 'dataurl' ? ' on' : '');
+        modeBtn.title = a.mode === 'dataurl' ? '当前：以图片内容发送（多模态）· 点击改为只发路径' : '当前：只发路径（省 token）· 点击改为发送图片内容';
+        modeBtn.textContent = a.mode === 'dataurl' ? '图片' : '路径';
+        modeBtn.addEventListener('click', async () => {
+          if (a.mode === 'path') {
+            try {
+              const b64 = await ipc.fetchImageAsBase64(a.path);
+              a.dataUrl = `data:image/${imageMime(a.path)};base64,${b64}`;
+              a.mode = 'dataurl';
+            } catch (e) {
+              toast('读取图片失败：' + ipc.describeError(e), { error: true });
+            }
+          } else {
+            a.mode = 'path';
+          }
+          renderAttachments();
+          updateSendState();
+        });
+        item.appendChild(modeBtn);
+      }
       const del = document.createElement('button');
       del.className = 'ca-del mini-btn';
       del.title = '移除附件';
@@ -573,6 +619,9 @@ function numberedLines(lines, startNo) {
         name,
         isImage,
         preview: isImage ? ipc.convertFileSrc(path) : '',
+        // 图片发送模式：path=只给路径（省 token） | dataurl=以 data URL 发送（需模型支持视觉）
+        mode: isImage ? 'path' : '',
+        dataUrl: '',
         status: 'ready',
         text: '',
       };
@@ -600,16 +649,17 @@ function numberedLines(lines, startNo) {
   }
 
   function buildContextMessage(attList = attachments) {
-    const ctx = includeContext ? getContext() : null;
+    const ctx = contextMode === 'off' ? null : getContext();
     const parts = [];
     if (ctx) {
       const cm = editor.cm;
       const docLines = String(ctx.doc || cm.getValue()).split('\n');
       const hasSel = cm.somethingSelected();
+      const onlySel = contextMode === 'selection' && hasSel;
       const a = cm.getCursor('from');
       const b = cm.getCursor('to');
-      const fromLine = hasSel ? Math.min(a.line, b.line) + 1 : 1;
-      const toLine = hasSel ? Math.max(a.line, b.line) + 1 : docLines.length;
+      const fromLine = onlySel ? Math.min(a.line, b.line) + 1 : 1;
+      const toLine = onlySel ? Math.max(a.line, b.line) + 1 : docLines.length;
       const rangeLines = docLines.slice(fromLine - 1, toLine);
       let numbered = numberedLines(rangeLines, fromLine);
       let clipped = false;
@@ -618,8 +668,9 @@ function numberedLines(lines, startNo) {
         clipped = true;
       }
       const saved = !!ctx.path;
-      parts.push(`当前文档：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行${saved ? '' : '（尚未保存到磁盘：无法插入本地图片，需先保存）'}。`);
-      parts.push(hasSel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
+      const scopeName = onlySel ? '仅选区' : '当前文档';
+      parts.push(`${scopeName}：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行${saved ? '' : '（尚未保存到磁盘：无法插入本地图片，需先保存）'}。`);
+      parts.push(onlySel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
       const viewName = { editor: '源码', split: '分屏', preview: '预览（所见即所得）' }[prefs.viewMode] || '分屏';
       parts.push(`用户当前视图：${viewName}。`);
       parts.push(`带行号的原文${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${numbered}`);
@@ -628,7 +679,11 @@ function numberedLines(lines, startNo) {
     if (attList.length) {
       const att = attList
         .map((a) => {
-          if (a.isImage) return `- 图片附件：${a.name}（路径 ${a.path}；模型是否支持视觉取决于当前服务商）`;
+          if (a.isImage) {
+            return a.mode === 'dataurl'
+              ? `- 图片附件：${a.name}（图片内容已作为多模态输入一同发送，请直接观察图片）`
+              : `- 图片附件：${a.name}（仅提供路径 ${a.path}，无法看到图片内容）`;
+          }
           return `- 文件附件：${a.name}\n${a.text || '（无可用文本）'}`;
         })
         .join('\n');
@@ -741,13 +796,31 @@ function numberedLines(lines, startNo) {
       const ctx = buildContextMessage(usedAttachments);
       const messages = [{ role: 'system', content: system }];
       if (ctx) messages.push({ role: 'user', content: ctx });
+      // 多模态图片：把以 data URL 发送的图片作为独立 content part 附在同一条 user 消息上。
+      // 没有图片时保持纯字符串 content，兼容所有 OpenAI 兼容服务商。
+      const visionParts = usedAttachments
+        .filter((a) => a.isImage && a.mode === 'dataurl' && a.dataUrl)
+        .map((a) => ({ type: 'image_url', image_url: { url: a.dataUrl } }));
+      if (visionParts.length) {
+        const last = messages[messages.length - 1];
+        if (last && last.role === 'user') {
+          last.content = [
+            { type: 'text', text: String(last.content || content) },
+            ...visionParts,
+          ];
+        } else {
+          messages.push({ role: 'user', content: [{ type: 'text', text: content }, ...visionParts] });
+        }
+      }
       messages.push(...history);
 
-      if (includeContext) {
+      if (contextMode !== 'off') {
         const c = getContext();
-        const raw = c ? (c.selection && c.selection.trim() ? c.selection : c.doc || '') : '';
+        const raw = contextMode === 'selection'
+          ? (c && c.selection ? c.selection : '')
+          : (c ? c.doc || '' : '');
         if (raw.length > MAX_CONTEXT) {
-          toast(`文档较长，本次上下文只发送前 ${MAX_CONTEXT} 字`, { duration: 3200 });
+          toast(`内容较长，本次上下文只发送前 ${MAX_CONTEXT} 字`, { duration: 3200 });
         }
       }
 
@@ -1075,11 +1148,18 @@ function numberedLines(lines, startNo) {
   }
 
   function updateContextChip() {
-    contextBtn.classList.toggle('on', includeContext);
-    const ctx = getContext();
-    contextBtn.textContent = includeContext
-      ? `文档上下文：${ctx ? ctx.name || ctx.path || '当前文档' : '当前文档'}`
-      : '文档上下文：关闭（附件仍会发送）';
+    contextBtn.classList.toggle('on', contextMode !== 'off');
+    const labels = { doc: '整篇文档', selection: '仅选区', off: '关闭' };
+    contextBtn.textContent = `上下文：${labels[contextMode] || '整篇文档'}`;
+    contextBtn.title = '选择发送给 Agent 的文档上下文范围（附件不受影响）';
+  }
+
+  function setContextMode(mode) {
+    if (!['doc', 'selection', 'off'].includes(mode)) return;
+    contextMode = mode;
+    save(CONTEXT_MODE_KEY, mode);
+    updateContextChip();
+    updateSendState();
   }
 
   function isOpen() {
@@ -1171,9 +1251,13 @@ function numberedLines(lines, startNo) {
     e.currentTarget.classList.toggle('collapsed');
   });
   $('chat-skill-chip').addEventListener('click', (e) => showSkills(e.currentTarget));
-  contextBtn.addEventListener('click', () => {
-    includeContext = !includeContext;
-    updateContextChip();
+  contextBtn.addEventListener('click', (e) => {
+    showMenu(e.currentTarget, [
+      { label: '整篇文档', hint: contextMode === 'doc' ? '✓' : '', onClick: () => setContextMode('doc') },
+      { label: '仅选区', hint: contextMode === 'selection' ? '✓' : '', onClick: () => setContextMode('selection') },
+      { sep: true },
+      { label: '关闭（附件仍会发送）', hint: contextMode === 'off' ? '✓' : '', onClick: () => setContextMode('off') },
+    ]);
   });
   // 技能管理弹窗事件
   $('skills-close').addEventListener('click', closeSkillsManager);
@@ -1247,9 +1331,13 @@ function numberedLines(lines, startNo) {
     e.preventDefault();
     dropDepth = 0;
     panel.classList.remove('chat-dropping');
+    // 文件路径统一交给 Tauri 的 onDragDropEvent 处理（main.js 按落点坐标分流）。
+    // 这里若再用 dataTransfer.files 添加一次，两个路径会重复添加同一附件。
+    // 浏览器原生 drop 只处理纯文本拖入，用于非 Tauri 环境。
     const files = Array.from(e.dataTransfer?.files || []);
-    const paths = files.map((f) => f.path).filter(Boolean);
-    if (paths.length) await addPaths(paths);
+    if (files.length) return;
+    const text = e.dataTransfer?.getData?.('text/plain') || '';
+    if (text.trim()) inputEl.value = (inputEl.value ? inputEl.value + '\n' : '') + text;
   });
 
   function init() {
