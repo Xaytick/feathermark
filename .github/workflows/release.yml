@@ -1,0 +1,57 @@
+name: Release
+
+# 触发方式：推送提交信息含 [release] 的提交到 main，或推送 v* 标签。
+# 用 GitHub 内置的 GITHUB_TOKEN 创建 Release 并上传资产，无需外部 token。
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger gate
+        id: gate
+        shell: bash
+        run: |
+          msg="${{ github.event.head_commit.message }}"
+          ref="${{ github.ref }}"
+          if [[ "$ref" == refs/tags/v* ]]; then
+            echo "version=${ref#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$msg" == *"[release]"* ]]; then
+            echo "version=v0.4.36" >> "$GITHUB_OUTPUT"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout assets branch
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: release-assets
+          path: assets
+
+      - name: Create Release and upload assets
+        if: steps.gate.outputs.go == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.gate.outputs.version }}
+          name: FeatherMark ${{ steps.gate.outputs.version }}
+          generate_release_notes: true
+          body: |
+            轻量跨平台 Markdown 编辑器（Tauri 2 + CodeMirror 5）。
+
+            **下载**
+            - macOS (Apple Silicon)：`FeatherMark-v0.4.36-macos-arm64.zip`，解压出 FeatherMark.app 拖进应用程序即可。
+            - Windows x64：`FeatherMark-v0.4.36-windows-x64.zip`，绿色便携版，双击 feathermark.exe 运行（需 WebView2）。
+
+            两个平台均未签名，首次打开可能需要在系统设置里允许。
+          files: |
+            assets/dist/FeatherMark-v0.4.36-macos-arm64.zip
+            assets/dist/FeatherMark-v0.4.36-windows-x64.zip
