@@ -42,6 +42,19 @@ jobs:
           test -f "assets/dist/FeatherMark-${v}-macos-arm64.zip"
           test -f "assets/dist/FeatherMark-${v}-windows-x64.zip"
 
+      - name: Remove stale assets from this release
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          v="${{ steps.gate.outputs.version }}"
+          rel=$(gh api "repos/$GH_REPO/releases/tags/$v" --jq '.id' 2>/dev/null || true)
+          if [ -z "$rel" ]; then echo "no existing release $v"; exit 0; fi
+          gh api "repos/$GH_REPO/releases/$rel/assets" --jq '.[] | select(.name | contains("'"$v"'") | not) | .id' 2>/dev/null \
+            | while read -r aid; do gh api -X DELETE "repos/$GH_REPO/releases/assets/$aid" && echo "deleted asset $aid"; done
+
       - name: Delete existing Release if present
         if: steps.gate.outputs.go == 'true'
         env:
