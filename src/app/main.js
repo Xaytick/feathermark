@@ -309,12 +309,72 @@ async function saveTab(tab = activeTab(), { as = false } = {}) {
     tree.setActive(path);
     if (state.workspace && path.startsWith(state.workspace)) tree.refresh();
     saveSessionNow();
+    clearTimeout(autoSaveTimer); // 手动已保存，取消待执行的自动保存
+    autoSaveSeq++;
     ui.toast('已保存');
     return true;
   } catch (e) {
     ui.toast(ipc.describeError(e), { error: true });
     return false;
   }
+}
+
+/* ================================================================= 自动保存 */
+// 设计：静默写盘（不弹框/不弹 toast），只处理已保存到磁盘的标签。
+// 护栏：写前校验 tab.doc 仍是触发时的内容（避免覆盖期间的新编辑）；
+//       写后更新 tab.mtime 与 savedDoc，防止文件监听误报「被其他程序修改」。
+let autoSaveTimer = null;
+let autoSaveSeq = 0;
+
+async function autoSaveTab(tab, expectedDoc) {
+  if (!tab || !tab.path || tab.doc !== expectedDoc || !tab.dirty) return;
+  // 外部程序刚改过磁盘且我们还没同步：不覆盖（mtime 与已知值不符）
+  try {
+    const meta = await ipc.fileMeta(tab.path).catch(() => null);
+    if (meta && tab.mtime && meta.mtime !== tab.mtime) return;
+  } catch (_) {}
+  try {
+    const snapshot = tab.doc;
+    await ipc.writeFile(tab.path, snapshot);
+    // 校验：写盘期间用户又编辑了 → 不更新脏标记，让下一轮自动保存接手
+    if (tab.doc !== snapshot) return;
+    tab.savedDoc = snapshot;
+    tab.dirty = false;
+    const m = await ipc.fileMeta(tab.path).catch(() => null);
+    tab.mtime = m ? m.mtime : 0;
+    renderTabs();
+    updateStatusbar();
+    if (tab.id === state.activeId) showSavedHint();
+  } catch (e) {
+    console.warn('自动保存失败:', e);
+  }
+}
+
+function scheduleAutoSave() {
+  if (!prefs.autoSave) return;
+  clearTimeout(autoSaveTimer);
+  const seq = ++autoSaveSeq;
+  const tab = activeTab();
+  if (!tab || !tab.path || !tab.dirty) return;
+  const expectedDoc = tab.doc;
+  autoSaveTimer = setTimeout(() => {
+    if (seq === autoSaveSeq) autoSaveTab(tab, expectedDoc);
+  }, 1500);
+}
+
+let savedHintTimer = null;
+function showSavedHint() {
+  const el = $('sb-dirty');
+  if (!el) return;
+  el.textContent = tr('status.autoSaved');
+  el.classList.remove('hidden');
+  el.classList.remove('dirty');
+  clearTimeout(savedHintTimer);
+  savedHintTimer = setTimeout(() => {
+    el.textContent = tr('status.dirty');
+    el.classList.add('dirty');
+    updateStatusbar();
+  }, 1600);
 }
 
 async function closeTab(id) {
@@ -453,7 +513,10 @@ function updateStatusbar() {
   }
   pathEl.textContent = tab.path || tab.name;
   pathEl.title = tab.path || tab.name;
-  $('sb-dirty').classList.toggle('hidden', !tab.dirty);
+  const dirtyEl = $('sb-dirty');
+  dirtyEl.textContent = tr('status.dirty');
+  dirtyEl.classList.add('dirty');
+  dirtyEl.classList.toggle('hidden', !tab.dirty);
   const chars = tab.doc.replace(/\s/g, '').length;
   $('sb-words').textContent = `${chars.toLocaleString()} 字`;
 }
@@ -773,6 +836,14 @@ function onPrefChange(key, value) {
   else if (['viewMode', 'splitDir', 'sidebarVisible'].includes(key)) applyLayout();
   else if (key === 'lineWrap' || key === 'lineNumbers') applyLayout();
   else if (key === 'autoPairs') editor.cm.setOption('autoCloseBrackets', value);
+  else if (key === 'autoSave') {
+    if (!value) {
+      clearTimeout(autoSaveTimer);
+      autoSaveSeq++;
+    } else {
+      scheduleAutoSave();
+    }
+  }
   else if (key === 'spellcheck') editor.setSpellcheck(value);
   else if (key === 'softBreaks') scheduleRender(true);
 }
@@ -940,6 +1011,7 @@ async function boot() {
         updateStatusbar();
       }
       saveSessionNow();
+      scheduleAutoSave();
       scheduleRender(false);
     },
     onCursor: updateCursor,

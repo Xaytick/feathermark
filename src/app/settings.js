@@ -963,6 +963,11 @@ export function createSettings({ body, onApply }) {
     );
     g3.appendChild(row('显示行号', '', toggle(prefs.lineNumbers, (v) => apply('lineNumbers', v))));
     g3.appendChild(row(
+      tr('set.autoSave'),
+      tr('set.autoSaveDesc'),
+      toggle(prefs.autoSave, (v) => apply('autoSave', v))
+    ));
+    g3.appendChild(row(
       tr('hist.settingLabel'),
       tr('hist.settingDesc'),
       toggle(prefs.historyEnabled, (v) => apply('historyEnabled', v))

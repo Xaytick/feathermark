@@ -61,6 +61,8 @@ const DICT = {
     'set.ai': 'AI', 'set.about': '关于', 'set.theme': '主题 · 配色',
     'set.editorHint': '字体 · 编辑', 'set.aboutHint': '版本 · 快捷键',
     'set.language': '界面语言', 'set.languageDesc': '设置菜单栏与应用界面的显示语言，重启后依然生效',
+    'status.autoSaved': '✓ 已自动保存', 'status.dirty': '● 未保存',
+    'set.autoSave': '自动保存', 'set.autoSaveDesc': '停止输入 1.5 秒后自动保存到磁盘（仅限已保存的文档）',
     // 通用提示
     'toast.saved': '已保存', 'toast.noDoc': '先打开一个文档', 'toast.pathCopied': '路径已复制',
   },
@@ -111,6 +113,8 @@ const DICT = {
     'set.ai': 'AI', 'set.about': 'About', 'set.theme': 'Theme · Colors',
     'set.editorHint': 'Font · Editing', 'set.aboutHint': 'Version · Shortcuts',
     'set.language': 'Language', 'set.languageDesc': 'Choose the display language for menus and UI. Takes effect immediately.',
+    'status.autoSaved': '✓ Saved', 'status.dirty': '● Unsaved',
+    'set.autoSave': 'Auto save', 'set.autoSaveDesc': 'Save to disk 1.5s after you stop typing (saved documents only)',
     'toast.saved': 'Saved', 'toast.noDoc': 'Open a document first', 'toast.pathCopied': 'Path copied',
   },
 };
