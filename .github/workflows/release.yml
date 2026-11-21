@@ -1,11 +1,11 @@
 name: Release
 
-# 触发方式：推送提交信息含 [release] 的提交到 main，或推送 v* 标签。
+# 触发方式：推送提交信息含 [release vX.Y.Z] 的提交到 main。
+# 不用 tag 触发——否则每次打版本 tag 都会意外建 Release，而资产分支可能还没更新。
 # 用 GitHub 内置的 GITHUB_TOKEN 创建 Release 并上传资产，无需外部 token。
 on:
   push:
     branches: [main]
-    tags: ['v*']
 
 permissions:
   contents: write
@@ -14,17 +14,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger gate
+      - name: Parse version from commit message
         id: gate
         shell: bash
         run: |
           msg="${{ github.event.head_commit.message }}"
-          ref="${{ github.ref }}"
-          if [[ "$ref" == refs/tags/v* ]]; then
-            echo "version=${ref#refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "go=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$msg" == *"[release]"* ]]; then
-            echo "version=v0.4.36" >> "$GITHUB_OUTPUT"
+          if [[ "$msg" =~ \[release\ v([0-9]+\.[0-9]+\.[0-9]+)\] ]]; then
+            echo "version=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "go=true" >> "$GITHUB_OUTPUT"
           else
             echo "go=false" >> "$GITHUB_OUTPUT"
@@ -37,6 +33,24 @@ jobs:
           ref: release-assets
           path: assets
 
+      - name: Verify assets exist for this version
+        if: steps.gate.outputs.go == 'true'
+        shell: bash
+        run: |
+          v="${{ steps.gate.outputs.version }}"
+          ls assets/dist/*-${v}-*.zip
+          test -f "assets/dist/FeatherMark-${v}-macos-arm64.zip"
+          test -f "assets/dist/FeatherMark-${v}-windows-x64.zip"
+
+      - name: Delete existing Release if present
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          v="${{ steps.gate.outputs.version }}"
+          gh release delete "$v" --yes --cleanup-tag 2>/dev/null || true
+
       - name: Create Release and upload assets
         if: steps.gate.outputs.go == 'true'
         uses: softprops/action-gh-release@v2
@@ -48,10 +62,10 @@ jobs:
             轻量跨平台 Markdown 编辑器（Tauri 2 + CodeMirror 5）。
 
             **下载**
-            - macOS (Apple Silicon)：`FeatherMark-v0.4.36-macos-arm64.zip`，解压出 FeatherMark.app 拖进应用程序即可。
-            - Windows x64：`FeatherMark-v0.4.36-windows-x64.zip`，绿色便携版，双击 feathermark.exe 运行（需 WebView2）。
+            - macOS (Apple Silicon)：`FeatherMark-${{ steps.gate.outputs.version }}-macos-arm64.zip`，解压出 FeatherMark.app 拖进应用程序即可。
+            - Windows x64：`FeatherMark-${{ steps.gate.outputs.version }}-windows-x64.zip`，绿色便携版，双击 feathermark.exe 运行（需 WebView2）。
 
             两个平台均未签名，首次打开可能需要在系统设置里允许。
           files: |
-            assets/dist/FeatherMark-v0.4.36-macos-arm64.zip
-            assets/dist/FeatherMark-v0.4.36-windows-x64.zip
+            assets/dist/FeatherMark-${{ steps.gate.outputs.version }}-macos-arm64.zip
+            assets/dist/FeatherMark-${{ steps.gate.outputs.version }}-windows-x64.zip
