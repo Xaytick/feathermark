@@ -6,6 +6,7 @@
   "license": "GPL-3.0",
   "scripts": {
     "assets": "node build.mjs",
+    "test": "node tests/agent.test.mjs",
     "dev": "tauri dev",
     "build": "tauri build",
     "tauri": "tauri"
