@@ -312,6 +312,30 @@
     </div>
   </div>
 
+  <!-- 编辑历史（git 独立 ref） -->
+  <div id="history-dialog" class="overlay hidden">
+    <div class="ai-box history-box">
+      <header class="ai-head">
+        <div class="ai-title" data-i18n="hist.title">编辑历史</div>
+        <span id="history-scope" class="ai-scope"></span>
+        <button class="mini-btn" id="history-close" title="关闭 (Esc)">✕</button>
+      </header>
+      <div class="ai-source" data-i18n="hist.hint">这些版本存在当前 git 仓库的独立 ref 中，不影响你的提交历史。</div>
+      <div class="history-body">
+        <div id="history-list" class="history-list"></div>
+        <div id="history-diff" class="ai-diff history-diff"></div>
+      </div>
+      <footer class="ai-foot">
+        <span class="ai-meta" id="history-meta"></span>
+        <div class="ai-foot-actions">
+          <button class="btn ghost" id="history-clear" data-i18n="hist.clear">清空历史</button>
+          <button class="btn ghost" id="history-saveas" data-i18n="hist.saveAs">另存为文件</button>
+          <button class="btn success" id="history-restore" data-i18n="hist.restore">恢复到编辑器</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
   <!-- AI 编辑 -->
   <div id="ai-dialog" class="overlay hidden">
     <div class="ai-box">

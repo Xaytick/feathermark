@@ -8,7 +8,7 @@ import { runAgent } from './agent.js';
 import { EDIT_TEMPLATES, templateById, defaultParams, buildEditTask } from './edit-templates.js';
 import { buildDiffView } from './diff-view.js';
 
-export function createAgentEdit({ editor, onNeedConfig }) {
+export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
   const $ = (id) => document.getElementById(id);
   const dialog = $('ai-dialog');
   const chipsEl = $('ai-chips');
@@ -302,6 +302,20 @@ export function createAgentEdit({ editor, onNeedConfig }) {
       return;
     }
     const next = view.compose(mode);
+    // 写回前记录历史版本（fire-and-forget：历史写入失败不应阻止编辑）。
+    if (onVersionRecorded) {
+      onVersionRecorded({
+        afterDoc: next,
+        label: template.label + (result.mode === 'fallback' ? '（整篇）' : ''),
+        meta: {
+          source: 'template',
+          model: result.model,
+          promptTokens: result.promptTokens,
+          completionTokens: result.completionTokens,
+          edits: result.edits,
+        },
+      });
+    }
     cm.operation(() => cm.replaceRange(next, scope.from, scope.to));
     cm.focus();
     close();

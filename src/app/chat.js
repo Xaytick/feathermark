@@ -88,7 +88,7 @@ const shortTime = (ts) => {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 };
 
-export function createChat({ editor, getContext, getWorkspace, openSettings, onLayoutChange }) {
+export function createChat({ editor, getContext, getWorkspace, openSettings, onLayoutChange, onVersionRecorded }) {
   const $ = (id) => document.getElementById(id);
   const panel = $('chat-panel');
   const splitter = $('splitter-chat');
@@ -111,7 +111,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const applyWarningEl = $('apply-warning');
 
   // Agent 编辑模板流程由 Agent 模块统一持有；状态栏、快捷键、菜单都通过本模块调用。
-  const agentEdit = createAgentEdit({ editor, onNeedConfig: openSettings });
+  const agentEdit = createAgentEdit({ editor, onNeedConfig: openSettings, onVersionRecorded });
 
   let allSessions = load(SESSION_KEY, []);
   let activeId = null;
@@ -516,6 +516,13 @@ function numberedLines(lines, startNo) {
       return;
     }
     const next = applyView.compose(mode);
+    if (onVersionRecorded) {
+      onVersionRecorded({
+        afterDoc: next,
+        label: '对话修改',
+        meta: { source: 'chat', model: applyMsg.model, edits: total },
+      });
+    }
     editor.cm.operation(() => editor.cm.replaceRange(next, applyScope.from, applyScope.to));
     editor.cm.focus();
     editor.cm.refresh();

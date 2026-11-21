@@ -15,6 +15,7 @@ import { createSearch } from './search.js';
 import { createQuickOpen } from './quickopen.js';
 import { createSettings } from './settings.js';
 import { createChat } from './chat.js';
+import { createHistoryPanel } from './history-panel.js';
 import * as exporters from './exporters.js';
 import * as ui from './ui.js';
 import { t as tr, locale as uiLocale, setLocale, applyStatic } from './i18n.js';
@@ -40,9 +41,35 @@ let search = null;
 let quickopen = null;
 let settings = null;
 let chat = null;
+let historyPanel = null;
 
 const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
 const uid = () => 't' + Math.random().toString(36).slice(2, 9);
+
+/* ================================================================= 编辑历史 */
+// 文档在 git 仓库里的稳定键：相对 workspace 的路径；未保存到磁盘时用文件名。
+function versionFileKey(tab = activeTab()) {
+  if (!tab) return null;
+  if (tab.path && state.workspace) {
+    const ws = state.workspace.replace(/\/+$/, '') + '/';
+    if (tab.path.startsWith(ws)) return tab.path.slice(ws.length).replace(/\\/g, '/');
+  }
+  return tab.name || 'untitled';
+}
+
+// 写回前记录历史版本。失败只告警不阻塞编辑——历史是增强，不该影响保存。
+async function recordVersion({ afterDoc, label, meta }) {
+  const tab = activeTab();
+  if (!tab || !state.workspace) return;
+  const fileKey = versionFileKey(tab);
+  if (!fileKey || !afterDoc) return;
+  try {
+    await ipc.historyRecord(state.workspace, fileKey, afterDoc, label, meta);
+    if (historyPanel) historyPanel.invalidate();
+  } catch (e) {
+    console.warn('记录编辑历史失败（不影响编辑）:', e);
+  }
+}
 
 /* ================================================================= 主题与布局 */
 // 当前主题的统一解析：内置预设取 PRESETS，自定义配色（p 开头）从颜色派生完整 token。
@@ -652,6 +679,7 @@ function openMoreMenu() {
     { sep: true },
     { label: tr('menu.save'), hint: '⌘S', onClick: () => saveTab() },
     { label: tr('menu.saveAs'), hint: '⇧⌘S', onClick: () => saveTab(activeTab(), { as: true }) },
+    { label: tr('menu.history'), onClick: () => historyPanel && historyPanel.open() },
     { sep: true },
     { title: tr('menu.export') },
     { label: tr('menu.exportHtml'), onClick: () => doExport('html') },
@@ -1045,9 +1073,17 @@ async function boot() {
     },
     getWorkspace: () => state.workspace,
     openSettings: (o) => openSettings(o),
+    onVersionRecorded: recordVersion,
   });
   chat.setRefresh(() => editor && editor.refresh());
   chat.init();
+
+  historyPanel = createHistoryPanel({
+    editor,
+    getWorkspace: () => state.workspace,
+    getFileKey: () => versionFileKey(),
+    getDoc: () => editor.getValue(),
+  });
 
   $('editor-pane').appendChild($('findbar'));
   findByCtl = setupFind();

@@ -14,6 +14,7 @@ use std::fs;
 use std::ops::Deref;
 use std::sync::Mutex;
 mod ai;
+mod history;
 mod menu;
 
 use tauri::{Emitter, Manager};
@@ -890,6 +891,11 @@ pub fn run() {
             ai::ai_chat_stream_cancel,
             ai::ai_test,
             ai::ai_models,
+            history::history_record,
+            history::history_list,
+            history::history_doc,
+            history::history_clear,
+            history::history_is_repo,
         ])
         .run(tauri::generate_context!())
         .expect("启动 FeatherMark 失败");
