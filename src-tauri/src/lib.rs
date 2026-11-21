@@ -895,7 +895,8 @@ pub fn run() {
             history::history_list,
             history::history_doc,
             history::history_clear,
-            history::history_is_repo,
+            history::history_clear_all,
+            history::history_storage_path,
         ])
         .run(tauri::generate_context!())
         .expect("启动 FeatherMark 失败");

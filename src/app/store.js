@@ -33,6 +33,7 @@ export const DEFAULT_PREFS = {
   lineWrap: true,
   lineNumbers: false,
   autoSave: false,
+  historyEnabled: true, // 记录编辑历史（存应用私有 git 仓库，不影响用户仓库）
   autoPairs: true,
   softBreaks: false,
   spellcheck: false,

@@ -47,27 +47,27 @@ const activeTab = () => state.tabs.find((t) => t.id === state.activeId) || null;
 const uid = () => 't' + Math.random().toString(36).slice(2, 9);
 
 /* ================================================================= 编辑历史 */
-// 文档在 git 仓库里的稳定键：相对 workspace 的路径；未保存到磁盘时用文件名。
-function versionFileKey(tab = activeTab()) {
+// 文档键：已保存用规范化绝对路径，未保存用 untitled/<name>。
+// 私有仓库按此键 hash 出独立 ref；不需要文档所在目录是 git 仓库。
+function versionDocKey(tab = activeTab()) {
   if (!tab) return null;
-  if (tab.path && state.workspace) {
-    const ws = state.workspace.replace(/\/+$/, '') + '/';
-    if (tab.path.startsWith(ws)) return tab.path.slice(ws.length).replace(/\\/g, '/');
-  }
-  return tab.name || 'untitled';
+  if (tab.path) return tab.path.replace(/\\/g, '/');
+  return 'untitled/' + (tab.name || 'document');
 }
 
-// 写回前记录历史版本。失败只告警不阻塞编辑——历史是增强，不该影响保存。
+// 写回前记录历史版本。受 prefs.historyEnabled 控制；失败只告警不阻塞编辑。
 async function recordVersion({ afterDoc, label, meta }) {
+  if (!prefs.historyEnabled) return;
   const tab = activeTab();
-  if (!tab || !state.workspace) return;
-  const fileKey = versionFileKey(tab);
-  if (!fileKey || !afterDoc) return;
+  if (!tab || !afterDoc) return;
+  const docKey = versionDocKey(tab);
+  if (!docKey) return;
   try {
-    await ipc.historyRecord(state.workspace, fileKey, afterDoc, label, meta);
+    await ipc.historyRecord(docKey, afterDoc, label, meta);
     if (historyPanel) historyPanel.invalidate();
   } catch (e) {
     console.warn('记录编辑历史失败（不影响编辑）:', e);
+    if (historyPanel) historyPanel.notifyError(ipc.describeError(e));
   }
 }
 
@@ -1080,9 +1080,9 @@ async function boot() {
 
   historyPanel = createHistoryPanel({
     editor,
-    getWorkspace: () => state.workspace,
-    getFileKey: () => versionFileKey(),
+    getDocKey: () => versionDocKey(),
     getDoc: () => editor.getValue(),
+    isEnabled: () => !!prefs.historyEnabled,
   });
 
   $('editor-pane').appendChild($('findbar'));

@@ -962,6 +962,11 @@ export function createSettings({ body, onApply }) {
       )
     );
     g3.appendChild(row('显示行号', '', toggle(prefs.lineNumbers, (v) => apply('lineNumbers', v))));
+    g3.appendChild(row(
+      tr('hist.settingLabel'),
+      tr('hist.settingDesc'),
+      toggle(prefs.historyEnabled, (v) => apply('historyEnabled', v))
+    ));
     g3.appendChild(
       row('自动配对标点', '输入 ( [ " 时自动补全另一半', toggle(prefs.autoPairs, (v) => apply('autoPairs', v)))
     );

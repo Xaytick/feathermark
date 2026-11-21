@@ -1276,6 +1276,7 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 .history-item .hi-id { font-family: var(--font-mono); color: var(--text-faint); font-size: 10px; }
 .history-empty { padding: 18px 12px; color: var(--text-faint); font-size: 12px; line-height: 1.6; }
 .history-diff { flex: 1; overflow: auto; padding: 6px 0; }
+.history-hint-off { color: var(--text-faint); font-style: italic; }
 .ai-hint {
   padding: 14px;
   font-size: 12px;

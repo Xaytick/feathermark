@@ -40,13 +40,14 @@ export const searchInFiles = (dir, pattern, caseSensitive, useRegex, extensions 
 export const searchFiles = (path, extensions = null, maxResults = 20000) =>
   call('search_files', { path, extensions, maxResults });
 
-/* ------------------------------------------------------------------ 编辑历史（用户 git 仓库的独立 ref） */
-export const historyIsRepo = (workspace) => call('history_is_repo', { workspace });
-export const historyRecord = (workspace, fileKey, doc, label, meta) =>
-  call('history_record', { workspace, fileKey, doc, label, meta: meta || null });
-export const historyList = (workspace, fileKey) => call('history_list', { workspace, fileKey });
-export const historyDoc = (workspace, commitId) => call('history_doc', { workspace, commitId });
-export const historyClear = (workspace, fileKey) => call('history_clear', { workspace, fileKey });
+/* ------------------------------------------------------------------ 编辑历史（应用私有 git 仓库） */
+export const historyRecord = (docKey, doc, label, meta) =>
+  call('history_record', { docKey, doc, label, meta: meta || null });
+export const historyList = (docKey) => call('history_list', { docKey });
+export const historyDoc = (commitId) => call('history_doc', { commitId });
+export const historyClear = (docKey) => call('history_clear', { docKey });
+export const historyClearAll = () => call('history_clear_all');
+export const historyStoragePath = () => call('history_storage_path');
 
 /* ------------------------------------------------------------------ 其他 */
 export const appDataDir = () => call('app_data_dir');

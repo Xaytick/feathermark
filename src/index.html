@@ -320,7 +320,7 @@
         <span id="history-scope" class="ai-scope"></span>
         <button class="mini-btn" id="history-close" title="关闭 (Esc)">✕</button>
       </header>
-      <div class="ai-source" data-i18n="hist.hint">这些版本存在当前 git 仓库的独立 ref 中，不影响你的提交历史。</div>
+      <div class="ai-source" id="history-hint" data-i18n="hist.hint"></div>
       <div class="history-body">
         <div id="history-list" class="history-list"></div>
         <div id="history-diff" class="ai-diff history-diff"></div>
@@ -328,7 +328,8 @@
       <footer class="ai-foot">
         <span class="ai-meta" id="history-meta"></span>
         <div class="ai-foot-actions">
-          <button class="btn ghost" id="history-clear" data-i18n="hist.clear">清空历史</button>
+          <button class="btn ghost" id="history-clear-all" data-i18n="hist.clearAll">清空全部</button>
+          <button class="btn ghost" id="history-clear" data-i18n="hist.clear">清空本文档</button>
           <button class="btn ghost" id="history-saveas" data-i18n="hist.saveAs">另存为文件</button>
           <button class="btn success" id="history-restore" data-i18n="hist.restore">恢复到编辑器</button>
         </div>
