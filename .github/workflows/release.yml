@@ -17,9 +17,12 @@ jobs:
       - name: Parse version from commit message
         id: gate
         shell: bash
+        env:
+          # 通过环境变量传入，绝不内联到 shell 脚本：提交信息可能含引号、反引号、换行，
+          # 直接写 msg="${{ ... }}" 会导致多行/特殊字符破坏 shell 语法（实测踩坑）。
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          msg="${{ github.event.head_commit.message }}"
-          if [[ "$msg" =~ \[release\ v([0-9]+\.[0-9]+\.[0-9]+)\] ]]; then
+          if [[ "$COMMIT_MSG" =~ \[release\ v([0-9]+\.[0-9]+\.[0-9]+)\] ]]; then
             echo "version=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
             echo "go=true" >> "$GITHUB_OUTPUT"
           else
