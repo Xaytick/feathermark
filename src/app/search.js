@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // 跨文件搜索面板。
 import * as ipc from './ipc.js';
 
@@ -9,7 +10,7 @@ export function createSearch({ input, caseBox, resultsEl, getWorkspace, onOpen }
     const query = input.value.trim();
     const ws = getWorkspace();
     if (!ws) {
-      resultsEl.innerHTML = '<div class="tree-empty">先打开一个文件夹，才能搜索整个工作区。</div>';
+      resultsEl.innerHTML = '<div class="tree-empty">'+tr('search.openFolderFirst');
       return;
     }
     if (!query) {
@@ -17,7 +18,7 @@ export function createSearch({ input, caseBox, resultsEl, getWorkspace, onOpen }
       return;
     }
     const token = ++seq;
-    resultsEl.innerHTML = '<div class="tree-empty">搜索中…</div>';
+    resultsEl.innerHTML = '<div class="tree-empty">'+tr('search.searching');
     try {
       const groups = await ipc.searchInFiles(ws, query, caseBox.checked, false, []);
       if (token !== seq) return;
@@ -43,7 +44,7 @@ export function createSearch({ input, caseBox, resultsEl, getWorkspace, onOpen }
   function render(groups, query) {
     resultsEl.innerHTML = '';
     if (!groups.length) {
-      resultsEl.innerHTML = '<div class="tree-empty">没有找到匹配内容。</div>';
+      resultsEl.innerHTML = '<div class="tree-empty">'+tr('search.noResult');
       return;
     }
     for (const group of groups) {
@@ -80,7 +81,7 @@ export function createSearch({ input, caseBox, resultsEl, getWorkspace, onOpen }
         const more = document.createElement('div');
         more.className = 'search-hit';
         more.style.color = 'var(--text-faint)';
-        more.textContent = `…还有 ${group.matches.length - max} 处`;
+        more.textContent = tr('search.more', { n: group.matches.length - max });
         box.appendChild(more);
       }
       resultsEl.appendChild(box);

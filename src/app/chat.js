@@ -14,6 +14,7 @@ import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
 import { getModels, onModelsChange } from './model-list.js';
 import { parseEdits, applyEdits } from './agent.js';
+import { t as tr } from './i18n.js';
 import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toSkillMarkdown, MAX_SKILLS } from './skills.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
@@ -57,10 +58,10 @@ const EDITOR_KNOWLEDGE = [
 ].join('\n');
 
 const TEMPLATES = [
-  { label: '解释这段代码', prompt: '请解释当前代码块的作用、关键步骤和注意事项。如果有多段代码，优先解释光标附近的代码。' },
-  { label: '生成大纲', prompt: '请基于当前文档生成一份简洁的大纲，并标出各章节之间的关系。' },
-  { label: '找问题', prompt: '请检查当前文档，指出错别字、语病、逻辑跳跃、事实存疑和结构问题，按严重程度排序。' },
-  { label: '续写下一节', prompt: '请根据当前文档的风格和结构，续写下一节内容，不要重复已有结论。' },
+  { label: tr('tpl.explain'), prompt: '请解释当前代码块的作用、关键步骤和注意事项。如果有多段代码，优先解释光标附近的代码。' },
+  { label: tr('tpl.outline'), prompt: '请基于当前文档生成一份简洁的大纲，并标出各章节之间的关系。' },
+  { label: tr('tpl.findIssues'), prompt: '请检查当前文档，指出错别字、语病、逻辑跳跃、事实存疑和结构问题，按严重程度排序。' },
+  { label: tr('tpl.continue'), prompt: '请根据当前文档的风格和结构，续写下一节内容，不要重复已有结论。' },
 ];
 
 function load(key, fallback) {
@@ -174,20 +175,20 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
     save(SESSION_KEY, allSessions);
     if (dropped && Date.now() - lastLimitToast > 4000) {
       lastLimitToast = Date.now();
-      toast(`会话较多，已按工作区清理到 ${MAX_SESSIONS} 个 / 每会话 ${MAX_MESSAGES} 条消息`, { duration: 3200 });
+      toast(tr('chat.trimmed', { n: MAX_SESSIONS, m: MAX_MESSAGES }), { duration: 3200 });
     }
   }
 
   function titleFrom(text) {
     const first = String(text || '').trim().split('\n')[0].replace(/^#+\s*/, '');
-    return (first || '新会话').slice(0, 24);
+    return (first || tr('chat.newSession')).slice(0, 24);
   }
 
   function newSession() {
     const s = {
       id: uid(),
       workspace: workspace(),
-      title: '新会话',
+      title: tr('chat.newSession'),
       updatedAt: Date.now(),
       messages: [],
     };
@@ -222,7 +223,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
     sessionsEl.innerHTML = '';
     const list = sessions().sort((a, b) => b.updatedAt - a.updatedAt);
     if (!list.length) {
-      sessionsEl.innerHTML = '<div class="tree-empty">还没有会话。点「+」开始。</div>';
+      sessionsEl.innerHTML = '<div class="tree-empty">' + tr('chat.noSessions') + '</div>';
       return;
     }
     for (const s of list) {
@@ -237,14 +238,14 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
       time.textContent = shortTime(s.updatedAt);
       const del = document.createElement('button');
       del.className = 'cs-del mini-btn';
-      del.title = '删除会话';
+      del.title = tr('chat.delSession');
       del.innerHTML = '<svg viewBox="0 0 24 24"><use href="#i-trash" /></svg>';
       del.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteSession(s.id);
       });
       row.addEventListener('dblclick', async () => {
-        const name = await promptDialog({ title: '重命名会话', value: s.title });
+        const name = await promptDialog({ title: tr('chat.renameSession'), value: s.title });
         if (name) {
           s.title = name;
           persist();
@@ -271,7 +272,7 @@ function numberedLines(lines, startNo) {
       const btn = document.createElement('button');
       btn.className = 'code-copy';
       btn.type = 'button';
-      btn.textContent = '复制';
+      btn.textContent = tr('copy');
       btn.addEventListener('click', async () => {
         const code = pre.querySelector('code');
         const clone = (code || pre).cloneNode(true);
@@ -281,9 +282,9 @@ function numberedLines(lines, startNo) {
         text = text.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '');
         try {
           await navigator.clipboard.writeText(text);
-          toast('已复制代码');
+          toast(tr('chat.codeCopied'));
         } catch (_) {
-          toast('复制失败', { error: true });
+          toast(tr('copyFailed'), { error: true });
         }
       });
       pre.appendChild(btn);
@@ -298,23 +299,23 @@ function numberedLines(lines, startNo) {
     head.className = 'chat-msg-head';
     const who = document.createElement('span');
     who.className = 'who';
-    who.textContent = msg.role === 'user' ? '你' : msg.role === 'assistant' ? 'Agent' : '系统';
+    who.textContent = msg.role === 'user' ? tr('chat.you') : msg.role === 'assistant' ? 'Agent' : tr('chat.system');
     const time = document.createElement('span');
     time.textContent = shortTime(msg.ts || Date.now());
     const status = document.createElement('span');
     status.className = 'status' + (msg.status === 'error' ? ' error' : '');
     if (msg.status === 'sending') status.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span>';
-    else if (msg.status === 'thinking') status.textContent = '思考中';
-    else if (msg.status === 'streaming') status.textContent = '生成中';
-    else if (msg.status === 'stopped') status.textContent = '已停止';
-    else if (msg.status === 'error') status.textContent = '失败';
-    else if (msg.role === 'user' && msg.status === 'sent') status.textContent = '已发送';
+    else if (msg.status === 'thinking') status.textContent = tr('chat.thinking');
+    else if (msg.status === 'streaming') status.textContent = tr('chat.streaming');
+    else if (msg.status === 'stopped') status.textContent = tr('chat.stopped');
+    else if (msg.status === 'error') status.textContent = tr('chat.failed');
+    else if (msg.role === 'user' && msg.status === 'sent') status.textContent = tr('chat.sent');
     head.append(who, time, status);
 
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
     if (msg.status === 'thinking') {
-      body.textContent = '正在思考…';
+      body.textContent = tr('chat.thinkingEllipsis');
     } else if (msg.status === 'streaming') {
       body.textContent = (msg.content || '') + ' ▌';
     } else if (msg.content) {
@@ -330,7 +331,7 @@ function numberedLines(lines, startNo) {
       }
       if (msg.role === 'assistant') addCodeCopyButtons(body);
     } else if (msg.status === 'sending') {
-      body.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span> 正在思考…';
+      body.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span> ' + tr('chat.thinkingEllipsis');
     }
 
     if (msg.attachments && msg.attachments.length) {
@@ -365,19 +366,19 @@ function numberedLines(lines, startNo) {
       actions.className = 'chat-msg-actions';
       if (msg.patch && msg.patch.length) {
         const diffBtn = document.createElement('button');
-        diffBtn.textContent = '查看差异';
-        diffBtn.title = '比较文档修改前后的差异，再决定是否应用';
+        diffBtn.textContent = tr('chat.viewDiff');
+        diffBtn.title = tr('chat.viewDiffHint');
         diffBtn.addEventListener('click', () => openApply(msg));
         actions.appendChild(diffBtn);
       }
       const copy = document.createElement('button');
-      copy.textContent = '复制';
+      copy.textContent = tr('copy');
       copy.addEventListener('click', async () => {
         try {
           await navigator.clipboard.writeText(msg.content);
-          toast('已复制');
+          toast(tr('copied'));
         } catch (_) {
-          toast('复制失败', { error: true });
+          toast(tr('copyFailed'), { error: true });
         }
       });
       actions.appendChild(copy);
@@ -388,7 +389,7 @@ function numberedLines(lines, startNo) {
       const retry = document.createElement('div');
       retry.className = 'chat-msg-actions';
       const btn = document.createElement('button');
-      btn.textContent = '重试上一条';
+      btn.textContent = tr('chat.retry');
       btn.addEventListener('click', () => {
         const s = active();
         if (!s) return;
@@ -413,12 +414,12 @@ function numberedLines(lines, startNo) {
     const total = applyView.changeCount;
     const accepted = applyView.acceptedCount();
     const partial = total > 0 && accepted < total;
-    btnApplyAccept.textContent = total ? `同意修改（${accepted}/${total} 处）` : '没有可应用的改动';
+    btnApplyAccept.textContent = total ? tr('chat.acceptChanges', { a: accepted, t: total }) : tr('chat.noApply');
     const needsConfirm = !applyWarningEl.classList.contains('hidden') && !!document.getElementById('apply-confirm');
     const confirmed = !needsConfirm || !!document.getElementById('apply-confirm')?.checked;
     btnApplyAccept.disabled = accepted === 0 || !confirmed || applyErrors.length > 0;
     btnApplyAll.classList.toggle('hidden', !partial || applyErrors.length > 0);
-    applyMetaEl.textContent = total ? `${accepted}/${total} 处改动已选` : '模型没有给出改动';
+    applyMetaEl.textContent = total ? tr('chat.selectedChanges', { a: accepted, t: total }) : tr('chat.noChanges');
   }
 
   function showApplyWarnings(warnings) {
@@ -430,7 +431,7 @@ function numberedLines(lines, startNo) {
     applyWarningEl.classList.remove('hidden');
     applyWarningEl.innerHTML = '';
     const title = document.createElement('div');
-    title.innerHTML = '<strong>请注意</strong>';
+    title.innerHTML = '<strong>' + tr('chat.attention') + '</strong>';
     const detail = document.createElement('div');
     detail.textContent = warnings.join('；') + '。';
     applyWarningEl.append(title, detail);
@@ -442,19 +443,19 @@ function numberedLines(lines, startNo) {
       box.id = 'apply-confirm';
       box.addEventListener('change', updateApplyState);
       confirm.appendChild(box);
-      confirm.appendChild(document.createTextNode('我已确认内容完整，仍要继续'));
+      confirm.appendChild(document.createTextNode(tr('chat.confirmComplete')));
       applyWarningEl.appendChild(confirm);
     }
   }
 
   function openApply(msg) {
     if (!msg || !String(msg.content || '').trim()) {
-      toast('回复中没有可应用的内容', { error: true });
+      toast(tr('chat.noApplyContent'), { error: true });
       return;
     }
     const parsed = msg.patch && msg.patch.length ? { edits: msg.patch } : parseEdits(msg.content);
     if (!parsed.edits.length) {
-      toast('这条回复不是编辑指令，没有可应用的修改', { error: true });
+      toast(tr('chat.notEditPatch'), { error: true });
       return;
     }
 
@@ -468,7 +469,7 @@ function numberedLines(lines, startNo) {
       from: { line: 0, ch: 0 },
       to: { line: docLines.length - 1, ch: (docLines[docLines.length - 1] || '').length },
     };
-    applyScopeEl.textContent = `整篇 ${docLines.length} 行 · 修改前 / 修改后`;
+    applyScopeEl.textContent = tr('chat.applyScope', { n: docLines.length });
 
     const warnings = [];
     if (applyMsg.finishReason === 'length') warnings.push('模型输出达到长度上限，补丁可能不完整');
@@ -496,30 +497,30 @@ function numberedLines(lines, startNo) {
   function acceptApply(mode) {
     if (!applyView || !applyScope) return;
     if (applyErrors.length) {
-      applyMetaEl.textContent = '补丁中有无效指令，请先重新生成';
+      applyMetaEl.textContent = tr('chat.invalidPatch');
       applyMetaEl.classList.add('error');
       return;
     }
     if (editor.cm.getValue() !== applyScope.snapshot) {
-      applyMetaEl.textContent = '文档在查看差异期间被改动，请关闭后重新查看差异';
+      applyMetaEl.textContent = tr('chat.docChanged');
       applyMetaEl.classList.add('error');
       return;
     }
     if (!applyWarningEl.classList.contains('hidden') && !document.getElementById('apply-confirm')?.checked) {
-      toast('请先勾选“我已确认内容完整”', { error: true });
+      toast(tr('chat.needConfirm'), { error: true });
       return;
     }
     const total = applyView.changeCount;
     const accepted = mode === 'all' ? total : applyView.acceptedCount();
     if (!total || !accepted) {
-      toast('没有勾选要应用的改动', { error: true });
+      toast(tr('chat.noSelected'), { error: true });
       return;
     }
     const next = applyView.compose(mode);
     if (onVersionRecorded) {
       onVersionRecorded({
         afterDoc: next,
-        label: '对话修改',
+        label: tr('chat.applyLabel'),
         meta: { source: 'chat', model: applyMsg.model, edits: total },
       });
     }
@@ -529,8 +530,8 @@ function numberedLines(lines, startNo) {
     const applied = accepted;
     const all = total;
     closeApply();
-    pushSystemNote(`已应用修改（${applied}/${all} 处）到当前文档，⌘Z 可撤销。`);
-    toast(applied === all ? '已同意修改，⌘Z 可撤销' : `已应用 ${applied}/${all} 处修改，⌘Z 可撤销`);
+    pushSystemNote(tr('chat.appliedNote', { a: applied, t: all }));
+    toast(applied === all ? tr('chat.accepted') : tr('chat.appliedPartial', { a: applied, t: all }));
   }
 
   function pushSystemNote(text) {
@@ -577,13 +578,13 @@ function numberedLines(lines, startNo) {
       const status = document.createElement('span');
       status.className = 'ca-status ' + (a.status || 'ready');
       status.textContent =
-        a.status === 'sending' ? '发送中' : a.status === 'sent' ? '已发送' : a.status === 'error' ? '失败' : '就绪';
+        a.status === 'sending' ? tr('chat.sending') : a.status === 'sent' ? tr('chat.sent') : a.status === 'error' ? tr('chat.failed') : tr('chat.ready');
       // 图片附件可切换发送方式：只给路径（省 token）/ 以 data URL 发送（多模态）
       if (a.isImage) {
         const modeBtn = document.createElement('button');
         modeBtn.className = 'ca-mode mini-btn' + (a.mode === 'dataurl' ? ' on' : '');
-        modeBtn.title = a.mode === 'dataurl' ? '当前：以图片内容发送（多模态）· 点击改为只发路径' : '当前：只发路径（省 token）· 点击改为发送图片内容';
-        modeBtn.textContent = a.mode === 'dataurl' ? '图片' : '路径';
+        modeBtn.title = a.mode === 'dataurl' ? tr('chat.imgModeDataTip') : tr('chat.imgModePathTip');
+        modeBtn.textContent = a.mode === 'dataurl' ? tr('chat.imgModeImage') : tr('chat.imgModePath');
         modeBtn.addEventListener('click', async () => {
           if (a.mode === 'path') {
             try {
@@ -591,7 +592,7 @@ function numberedLines(lines, startNo) {
               a.dataUrl = `data:image/${imageMime(a.path)};base64,${b64}`;
               a.mode = 'dataurl';
             } catch (e) {
-              toast('读取图片失败：' + ipc.describeError(e), { error: true });
+              toast(tr('chat.readImageFail') + ipc.describeError(e), { error: true });
             }
           } else {
             a.mode = 'path';
@@ -603,7 +604,7 @@ function numberedLines(lines, startNo) {
       }
       const del = document.createElement('button');
       del.className = 'ca-del mini-btn';
-      del.title = '移除附件';
+      del.title = tr('chat.removeAttach');
       del.textContent = '✕';
       del.addEventListener('click', () => {
         attachments = attachments.filter((x) => x.id !== a.id);
@@ -635,14 +636,14 @@ function numberedLines(lines, startNo) {
       attachments.push(a);
       if (!isImage) {
         if (!TEXT_ATTACH_RE.test(path)) {
-          a.text = '（二进制或未知格式，未读取内容）';
+          a.text = tr('chat.binaryAttach');
         } else {
           try {
             const content = await ipc.readFile(path);
             a.text = String(content || '').slice(0, MAX_TEXT_ATTACH);
           } catch (e) {
             a.status = 'error';
-            a.text = `（附件读取失败：${ipc.describeError(e)}）`;
+            a.text = tr('chat.attachReadFail', { e: ipc.describeError(e) });
           }
         }
       }
@@ -715,7 +716,7 @@ function numberedLines(lines, startNo) {
         skipTemperature: !!cfg.skip_temperature,
       });
       activeModel = clean;
-      toast(`已切换模型：${clean}`);
+      toast(tr('chat.modelSwitched', { m: clean }));
     } catch (e) {
       toast(ipc.describeError(e), { error: true });
     }
@@ -730,7 +731,7 @@ function numberedLines(lines, startNo) {
     if (!list.length) {
       const empty = document.createElement('option');
       empty.value = '';
-      empty.textContent = '未配置模型';
+      empty.textContent = tr('chat.noModel');
       modelSel.appendChild(empty);
     }
     list.forEach((name) => {
@@ -741,7 +742,7 @@ function numberedLines(lines, startNo) {
     });
     const add = document.createElement('option');
     add.value = '__add__';
-    add.textContent = '添加模型…';
+    add.textContent = tr('chat.addModel');
     modelSel.appendChild(add);
     modelSel.value = activeModel || (list[0] || '');
   }
@@ -827,7 +828,7 @@ function numberedLines(lines, startNo) {
           ? (c && c.selection ? c.selection : '')
           : (c ? c.doc || '' : '');
         if (raw.length > MAX_CONTEXT) {
-          toast(`内容较长，本次上下文只发送前 ${MAX_CONTEXT} 字`, { duration: 3200 });
+          toast(tr('chat.ctxTruncated', { n: MAX_CONTEXT }), { duration: 3200 });
         }
       }
 
@@ -878,7 +879,7 @@ function numberedLines(lines, startNo) {
       userMsg.status = 'error';
       userMsg.attachments.forEach((a) => (a.status = 'error'));
       if (/配置|API Key|Base URL|还没/i.test(msg)) {
-        assistantMsg.content = `${msg}\n\n请到「设置 → AI」填写接口地址和模型。`;
+        assistantMsg.content = `${msg}\n\n` + tr('chat.configureAI');
       }
     } finally {
       busy = false;
@@ -900,15 +901,15 @@ function numberedLines(lines, startNo) {
     const hasText = !!inputEl.value.trim();
     if (busy) {
       sendBtn.disabled = false;
-      sendBtn.innerHTML = `${sendIcon('i-close')} 停止`;
-      hintEl.textContent = streamRequestId ? '正在生成…点击「停止」' : 'Agent 正在回复…';
+      sendBtn.innerHTML = `${sendIcon('i-close')} ` + tr('stop');
+      hintEl.textContent = streamRequestId ? tr('chat.generatingStop') : tr('chat.waiting');
       return;
     }
     sendBtn.disabled = !hasText;
-    sendBtn.innerHTML = `${sendIcon('i-send')} 发送`;
+    sendBtn.innerHTML = `${sendIcon('i-send')} ` + tr('send');
     const ctx = buildContextMessage(attachments);
     const est = estimateTokens(`${inputEl.value || ''}\n${ctx || ''}`);
-    hintEl.textContent = `⌘↵ 发送 · 上下文约 ${est} tokens`;
+    hintEl.textContent = tr('chat.sendHint', { est: est });
   }
 
   function fillPrompt(text) {
@@ -924,7 +925,7 @@ function numberedLines(lines, startNo) {
         onClick: () => agentEdit.open(t.id, { source: 'agent' }),
       })),
       { sep: true },
-      { title: '选择模板后可配置范围与参数，执行前仍可先看逐块差异' },
+      { title: tr('chat.tplHint1') },
     ]);
   }
 
@@ -935,7 +936,7 @@ function numberedLines(lines, startNo) {
         onClick: () => fillPrompt(t.prompt),
       })),
       { sep: true },
-      { title: '提示：模板只填入输入框，你仍可继续编辑后再发送' },
+      { title: tr('chat.tplHint2') },
     ]);
   }
 
@@ -943,27 +944,27 @@ function numberedLines(lines, startNo) {
     const all = listSkills();
     const items = [];
     if (!all.length) {
-      items.push({ title: '还没有技能' });
-      items.push({ label: '导入 / 新建技能…', onClick: () => openSkillsManager() });
+      items.push({ title: tr('chat.noSkills') });
+      items.push({ label: tr('chat.importSkill'), onClick: () => openSkillsManager() });
       showMenu(anchor, items);
       return;
     }
-    items.push({ title: '技能（点选切换持续启用，或单次调用）' });
+    items.push({ title: tr('chat.skillsHint') });
     for (const skill of all) {
       const pinned = pinnedSkillId === skill.id;
-      items.push({ title: `${pinned ? '● ' : '○ '}${skill.name} — ${skill.description || '无描述'}` });
+      items.push({ title: `${pinned ? '● ' : '○ '}${skill.name} — ${skill.description || tr('noDesc')}` });
       items.push({
-        label: pinned ? `取消启用 ${skill.name}` : `持续启用 ${skill.name}`,
+        label: pinned ? tr('chat.skillUnpin', { n: skill.name }) : tr('chat.skillPin', { n: skill.name }),
         onClick: () => {
           pinnedSkillId = pinned ? null : skill.id;
           updateSkillChip();
-          toast(pinned ? `已停用「${skill.name}」` : `已持续启用「${skill.name}」`);
+          toast(pinned ? tr('chat.skillDisabled', { n: skill.name }) : tr('chat.skillPinned', { n: skill.name }));
         },
       });
-      items.push({ label: `仅本次调用 ${skill.name}`, onClick: () => useSkill(skill.id, true) });
+      items.push({ label: tr('chat.skillOnce', { n: skill.name }), onClick: () => useSkill(skill.id, true) });
       items.push({ sep: true });
     }
-    items.push({ label: '管理技能…', onClick: () => openSkillsManager() });
+    items.push({ label: tr('chat.manageSkills'), onClick: () => openSkillsManager() });
     showMenu(anchor, items);
   }
 
@@ -972,7 +973,7 @@ function numberedLines(lines, startNo) {
     if (!skill) return;
     if (once) {
       onceSkillId = id;
-      toast(`本次请求将使用「${skill.name}」`);
+      toast(tr('chat.skillThisTime', { n: skill.name }));
     } else {
       pinnedSkillId = id;
     }
@@ -984,7 +985,7 @@ function numberedLines(lines, startNo) {
   function updateSkillChip() {
     const skill = getSkill(pinnedSkillId) || (onceSkillId ? getSkill(onceSkillId) : null);
     const once = !pinnedSkillId && !!onceSkillId;
-    skillChip.textContent = skill ? `${once ? '本次' : '技能'}：${skill.name}` : '技能';
+    skillChip.textContent = skill ? `${once ? tr('chat.once') : tr('chat.skill')}：${skill.name}` : tr('chat.skill');
     skillChip.classList.toggle('on', !!skill);
   }
 
@@ -1007,7 +1008,7 @@ function numberedLines(lines, startNo) {
         updateSendState();
       },
     }));
-    items.push({ sep: true }, { title: 'Esc 取消' });
+    items.push({ sep: true }, { title: tr('escCancel') });
     showMenu(inputEl, items);
     return true;
   }
@@ -1041,7 +1042,7 @@ function numberedLines(lines, startNo) {
     if (!all.length) {
       const empty = document.createElement('div');
       empty.className = 'skills-list-empty';
-      empty.textContent = '还没有技能。点下方「新建技能」或导入 SKILL.md。';
+      empty.textContent = tr('chat.skillMgrEmpty');
       skillsListEl.appendChild(empty);
       return;
     }
@@ -1051,13 +1052,13 @@ function numberedLines(lines, startNo) {
       const pin = document.createElement('span');
       pin.className = 'skills-list-pin';
       pin.textContent = pinnedSkillId === sk.id ? '●' : '○';
-      pin.title = pinnedSkillId === sk.id ? '持续启用中' : '未启用';
+      pin.title = pinnedSkillId === sk.id ? tr('chat.skillEnabled') : tr('chat.skillNotEnabled');
       const name = document.createElement('span');
       name.className = 'skills-list-name';
       name.textContent = sk.name;
       const desc = document.createElement('span');
       desc.className = 'skills-list-desc';
-      desc.textContent = sk.description || '无描述';
+      desc.textContent = sk.description || tr('noDesc');
       item.appendChild(pin); item.appendChild(name); item.appendChild(desc);
       item.addEventListener('click', () => showSkillEditor(sk));
       skillsListEl.appendChild(item);
@@ -1094,7 +1095,7 @@ function numberedLines(lines, startNo) {
     editingSkillId = r.skill.id;
     updateSkillChip();
     renderSkillsList();
-    formMessage('已保存');
+    formMessage(tr('saved'));
   }
 
   async function importSkillFiles() {
@@ -1116,14 +1117,14 @@ function numberedLines(lines, startNo) {
       }
     }
     renderSkillsList();
-    if (count) formMessage(`已导入 ${count} 个技能`);
+    if (count) formMessage(tr('chat.skillImported', { n: count }));
     else if (lastErr) formMessage(lastErr, true);
   }
 
   function pasteSkill() {
     showMenu($('skill-paste'), [
-      { title: '把 SKILL.md 内容粘贴到下方文本框' },
-      { label: '从剪贴板读取并解析', onClick: async () => {
+      { title: tr('chat.skillPasteHint') },
+      { label: tr('chat.skillFromClipboard'), onClick: async () => {
         try {
           const text = await navigator.clipboard.readText();
           const r = parseSkillMarkdown(text);
@@ -1134,10 +1135,10 @@ function numberedLines(lines, startNo) {
           editingSkillId = null;
           skillsEmptyEl.classList.add('hidden');
           skillsFormEl.classList.remove('hidden');
-          formMessage('已解析，确认后点「保存技能」');
+          formMessage(tr('chat.skillParsed'));
           renderSkillsList();
         } catch (e) {
-          formMessage('读取剪贴板失败：' + ((e && e.message) || e), true);
+          formMessage(tr('chat.clipboardFail') + ((e && e.message) || e), true);
         }
       } },
     ]);
@@ -1156,9 +1157,9 @@ function numberedLines(lines, startNo) {
 
   function updateContextChip() {
     contextBtn.classList.toggle('on', contextMode !== 'off');
-    const labels = { doc: '整篇文档', selection: '仅选区', off: '关闭' };
-    contextBtn.textContent = `上下文：${labels[contextMode] || '整篇文档'}`;
-    contextBtn.title = '选择发送给 Agent 的文档上下文范围（附件不受影响）';
+    const labels = { doc: tr('chat.ctxDoc'), selection: tr('chat.ctxSel'), off: tr('chat.ctxOff') };
+    contextBtn.textContent = tr('chat.ctxButton', { m: labels[contextMode] || labels.doc });
+    contextBtn.title = tr('chat.ctxHint');
   }
 
   function setContextMode(mode) {
@@ -1231,7 +1232,7 @@ function numberedLines(lines, startNo) {
   $('chat-export').addEventListener('click', () => {
     const s = active();
     if (!s || !s.messages.length) {
-      toast('当前会话还没有内容', { error: true });
+      toast(tr('chat.sessionEmpty'), { error: true });
       return;
     }
     const blob = new Blob([JSON.stringify(s, null, 2)], { type: 'application/json' });
@@ -1244,10 +1245,10 @@ function numberedLines(lines, startNo) {
   $('chat-clear').addEventListener('click', async () => {
     const s = active();
     if (!s || !s.messages.length) return;
-    const ok = await ipc.confirmDialog('确定清空当前会话？此操作不可撤销。');
+    const ok = await ipc.confirmDialog(tr('chat.clearSessionConfirm'));
     if (!ok) return;
     s.messages = [];
-    s.title = '新会话';
+    s.title = tr('chat.newSession');
     s.updatedAt = Date.now();
     persist();
     renderSessions();
@@ -1260,10 +1261,10 @@ function numberedLines(lines, startNo) {
   $('chat-skill-chip').addEventListener('click', (e) => showSkills(e.currentTarget));
   contextBtn.addEventListener('click', (e) => {
     showMenu(e.currentTarget, [
-      { label: '整篇文档', hint: contextMode === 'doc' ? '✓' : '', onClick: () => setContextMode('doc') },
-      { label: '仅选区', hint: contextMode === 'selection' ? '✓' : '', onClick: () => setContextMode('selection') },
+      { label: tr('chat.ctxDoc'), hint: contextMode === 'doc' ? '✓' : '', onClick: () => setContextMode('doc') },
+      { label: tr('chat.ctxSel'), hint: contextMode === 'selection' ? '✓' : '', onClick: () => setContextMode('selection') },
       { sep: true },
-      { label: '关闭（附件仍会发送）', hint: contextMode === 'off' ? '✓' : '', onClick: () => setContextMode('off') },
+      { label: tr('chat.ctxOffFull'), hint: contextMode === 'off' ? '✓' : '', onClick: () => setContextMode('off') },
     ]);
   });
   // 技能管理弹窗事件
@@ -1278,14 +1279,14 @@ function numberedLines(lines, startNo) {
     const sk = getSkill(editingSkillId);
     if (!sk) return;
     showMenu($('skill-delete'), [
-      { title: `确认删除「${sk.name}」？` },
-      { label: '删除', onClick: () => {
+      { title: tr('chat.skillDeleteConfirm', { n: sk.name }) },
+      { label: tr('delete'), onClick: () => {
         deleteSkill(sk.id);
         if (pinnedSkillId === sk.id) pinnedSkillId = null;
         if (onceSkillId === sk.id) onceSkillId = null;
         updateSkillChip();
         showSkillEditor(null);
-        formMessage('已删除');
+        formMessage(tr('deleted'));
       } },
     ]);
   });
@@ -1357,6 +1358,15 @@ function numberedLines(lines, startNo) {
     updateSkillChip();
     updateSendState();
     renderModels();
+    // 切换界面语言后重绘动态文案（会话/消息/上下文/技能/发送状态）
+    document.addEventListener('languagechange', () => {
+      renderSessions();
+      renderMessages();
+      renderAttachments();
+      updateContextChip();
+      updateSkillChip();
+      updateSendState();
+    });
   }
 
   return {

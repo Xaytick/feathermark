@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // 通用 UI 零件：toast、弹出菜单、右键菜单、拖拽分隔条、图片查看器。
 import { convertFileSrc } from './ipc.js';
 
@@ -107,7 +108,7 @@ window.addEventListener('resize', hideMenus);
 
 /* ------------------------------------------------------------------ 输入对话框 */
 /** 轻量输入框（WebView 里 window.prompt 不可用，重命名/新建都得靠它）。 */
-export function promptDialog({ title = '输入', label = '', value = '', confirmText = '确定', placeholder = '' } = {}) {
+export function promptDialog({ title = tr('ui.input'), label = '', value = '', confirmText = tr('ok'), placeholder = '' } = {}) {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.className = 'overlay';
@@ -120,7 +121,7 @@ export function promptDialog({ title = '输入', label = '', value = '', confirm
           <input id="pd-input" type="text" style="width:100%;height:32px;padding:0 10px;border-radius:7px;border:1px solid var(--border-strong);background:var(--bg);outline:none;font-size:13px" placeholder="${placeholder}" />
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;padding:8px 16px 14px">
-          <button class="btn ghost" id="pd-cancel">取消</button>
+          <button class="btn ghost" id="pd-cancel">${tr('cancel')}</button>
           <button class="btn" id="pd-ok">${confirmText}</button>
         </div>
       </div>`;
@@ -191,7 +192,7 @@ export function initLightbox() {
   const host = document.createElement('div');
   host.id = 'lightbox';
   host.className = 'hidden';
-  host.innerHTML = '<img alt="" /><div class="lb-hint">滚轮缩放 · 拖动平移 · 双击重置 · Esc 关闭</div>';
+  host.innerHTML = '<img alt="" /><div class="lb-hint">' + tr('ui.lightboxHint') + '</div>';
   document.body.appendChild(host);
 
   const img = host.querySelector('img');

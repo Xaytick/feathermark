@@ -145,7 +145,7 @@ function applyLayout() {
   $('btn-mode-editor').classList.toggle('active', prefs.viewMode === 'editor');
   $('btn-mode-split').classList.toggle('active', prefs.viewMode === 'split');
   $('btn-mode-preview').classList.toggle('active', prefs.viewMode === 'preview');
-  $('sb-split-dir').textContent = prefs.splitDir === 'v' ? '上下' : '左右';
+  $('sb-split-dir').textContent = prefs.splitDir === 'v' ? tr('set.vertical') : tr('set.horizontal');
   $('sb-wrap').classList.toggle('on', prefs.lineWrap);
   $('sb-sidebar').classList.toggle('on', prefs.sidebarVisible);
   if (editor) {
@@ -218,7 +218,7 @@ function createTab({ path = null, name, doc = '' }) {
   const tab = {
     id: uid(),
     path,
-    name: name || (path ? basename(path) : `未命名 ${state.untitledSeq++}.md`),
+    name: name || (path ? basename(path) : tr('untitledDoc', { n: state.untitledSeq++ })),
     doc,
     savedDoc: doc,
     dirty: false,
@@ -311,7 +311,7 @@ async function saveTab(tab = activeTab(), { as = false } = {}) {
     saveSessionNow();
     clearTimeout(autoSaveTimer); // 手动已保存，取消待执行的自动保存
     autoSaveSeq++;
-    ui.toast('已保存');
+    ui.toast(tr('saved'));
     return true;
   } catch (e) {
     ui.toast(ipc.describeError(e), { error: true });
@@ -382,8 +382,8 @@ async function closeTab(id) {
   if (idx < 0) return;
   const tab = state.tabs[idx];
   if (tab.dirty) {
-    const ok = await ipc.confirmDialog(`「${tab.name}」还有未保存的修改，仍要关闭吗？`, {
-      title: '关闭标签',
+    const ok = await ipc.confirmDialog(tr('main.closeUnsaved', { n: tab.name }), {
+      title: tr('main.closeTabTitle'),
       kind: 'warning',
     });
     if (!ok) return;
@@ -440,7 +440,7 @@ function buildOutline(items) {
   const host = $('outline');
   host.innerHTML = '';
   if (!items.length) {
-    host.innerHTML = '<div class="outline-empty">当前文档还没有标题。<br>用 # 开头的行会出现在这里。</div>';
+    host.innerHTML = tr('main.outlineEmpty');
     return;
   }
   for (const item of items) {
@@ -448,7 +448,7 @@ function buildOutline(items) {
     a.className = 'outline-item';
     a.dataset.level = String(item.level);
     a.dataset.line = String(item.line);
-    a.textContent = item.text || '(空标题)';
+    a.textContent = item.text || tr('main.emptyHeading');
     a.title = item.text;
     a.addEventListener('click', () => {
       editor.scrollToLine(item.line);
@@ -505,9 +505,9 @@ function updateStatusbar() {
   const tab = activeTab();
   const pathEl = $('sb-path');
   if (!tab) {
-    pathEl.textContent = '未命名';
-    $('sb-words').textContent = '0 字';
-    $('sb-cursor').textContent = '行 1, 列 1';
+    pathEl.textContent = tr('untitled');
+    $('sb-words').textContent = tr('main.words', { n: 0 });
+    $('sb-cursor').textContent = tr('main.cursor', { l: 1, c: 1 });
     $('sb-dirty').classList.add('hidden');
     return;
   }
@@ -518,11 +518,11 @@ function updateStatusbar() {
   dirtyEl.classList.add('dirty');
   dirtyEl.classList.toggle('hidden', !tab.dirty);
   const chars = tab.doc.replace(/\s/g, '').length;
-  $('sb-words').textContent = `${chars.toLocaleString()} 字`;
+  $('sb-words').textContent = tr('main.words', { n: chars.toLocaleString() });
 }
 
 function updateCursor({ line, ch, selected }) {
-  $('sb-cursor').textContent = selected ? `行 ${line}, 列 ${ch} · 选中 ${selected}` : `行 ${line}, 列 ${ch}`;
+  $('sb-cursor').textContent = selected ? tr('main.cursorSel', { l: line, c: ch, s: selected }) : tr('main.cursor', { l: line, c: ch });
 }
 
 function updateEmpty() {
@@ -539,7 +539,7 @@ function updateEmpty() {
   if (!recent.length) return;
   const title = document.createElement('div');
   title.className = 'recent-title';
-  title.textContent = '最近打开';
+  title.textContent = tr('main.recent');
   host.appendChild(title);
   for (const p of recent) {
     const b = document.createElement('button');
@@ -617,7 +617,7 @@ async function handleImageInsert({ bytes, ext }) {
   const tab = activeTab();
   if (!tab) return '';
   if (!tab.path) {
-    ui.toast('先把文件保存到磁盘，图片才会存进同目录的 assets/', { error: true });
+    ui.toast(tr('main.saveBeforeImage'), { error: true });
     return '';
   }
   try {
@@ -639,7 +639,7 @@ function setupFind() {
 
   const run = (focusFirst = true) => {
     const n = editor.find.search(input.value);
-    count.textContent = input.value ? (n ? `${Math.max(1, editor.find.index + 1)}/${n}` : '无结果') : '';
+    count.textContent = input.value ? (n ? `${Math.max(1, editor.find.index + 1)}/${n}` : tr('noResult')) : '';
     if (n && focusFirst) editor.find.focusHit(0);
   };
 
@@ -687,7 +687,7 @@ function setupFind() {
   $('find-replace-all').addEventListener('click', () => {
     if (!input.value) return;
     const n = editor.find.replaceAll(replaceInput.value);
-    ui.toast(`已替换 ${n} 处`);
+    ui.toast(tr('main.replaced', { n: n }));
     run(true);
   });
 
@@ -776,7 +776,7 @@ function tabMenu(tab, x, y) {
     { sep: true },
     {
       label: tr('tab.copyPath'),
-      onClick: () => tab.path && navigator.clipboard.writeText(tab.path).then(() => ui.toast('路径已复制')),
+      onClick: () => tab.path && navigator.clipboard.writeText(tab.path).then(() => ui.toast(tr('toast.pathCopied'))),
     },
     {
       label: tr('tab.reveal'),
@@ -798,7 +798,7 @@ async function pickFolderAndOpen() {
 async function doExport(kind) {
   const tab = activeTab();
   if (!tab) {
-    ui.toast('先打开一个文档', { error: true });
+    ui.toast(tr('toast.noDoc'), { error: true });
     return;
   }
   const base = (tab.path || tab.name).replace(/\.(md|markdown|mdown|mkd|txt)$/i, '');
@@ -808,7 +808,7 @@ async function doExport(kind) {
     else if (kind === 'pdf') await exporters.exportPDF({ previewEl: $('preview'), defaultPath: `${base}.pdf` });
   } catch (e) {
     console.error(e);
-    ui.toast('导出失败：' + (e && e.message ? e.message : e), { error: true });
+    ui.toast(tr('main.exportFail') + (e && e.message ? e.message : e), { error: true });
   }
 }
 
@@ -1048,26 +1048,26 @@ async function boot() {
     const selected = String(window.getSelection() || '').trim();
     const items = [];
     if (selected) {
-      items.push({ label: '复制选中文字', onClick: () => navigator.clipboard.writeText(selected).catch(() => {}) });
+      items.push({ label: tr('main.copySelection'), onClick: () => navigator.clipboard.writeText(selected).catch(() => {}) });
       items.push({ sep: true });
     }
     if (img) {
       const src = img.dataset.localPath || img.src;
-      items.push({ label: '查看图片', onClick: () => ui.openLightbox(img.src) });
-      items.push({ label: '复制图片路径', onClick: () => navigator.clipboard.writeText(src).catch(() => {}) });
+      items.push({ label: tr('edit.viewImage'), onClick: () => ui.openLightbox(img.src) });
+      items.push({ label: tr('main.copyImagePath'), onClick: () => navigator.clipboard.writeText(src).catch(() => {}) });
       items.push({ sep: true });
     }
     if (link) {
       const href = link.getAttribute('href') || '';
       if (href) {
-        items.push({ label: '复制链接地址', onClick: () => navigator.clipboard.writeText(href).catch(() => {}) });
+        items.push({ label: tr('edit.copyLink'), onClick: () => navigator.clipboard.writeText(href).catch(() => {}) });
         if (/^https?:/i.test(href)) {
-          items.push({ label: '在浏览器打开', onClick: () => ipc.openPath(href).catch(() => {}) });
+          items.push({ label: tr('main.openInBrowser'), onClick: () => ipc.openPath(href).catch(() => {}) });
         }
         items.push({ sep: true });
       }
     }
-    items.push({ label: '全选预览内容', onClick: () => {
+    items.push({ label: tr('main.selectAllPreview'), onClick: () => {
       const range = document.createRange();
       range.selectNodeContents($('preview'));
       const sel = window.getSelection();
@@ -1320,7 +1320,7 @@ async function checkExternalChanges() {
     if (!meta) continue;
     if (meta.mtime === tab.mtime) continue;
     if (tab.dirty) {
-      ui.toast(`「${tab.name}」已被其他程序修改，保存前请确认`, { error: true, duration: 3200 });
+      ui.toast(tr('main.externalModified', { n: tab.name }), { error: true, duration: 3200 });
       tab.mtime = meta.mtime;
       continue;
     }
@@ -1334,7 +1334,7 @@ async function checkExternalChanges() {
         editor.setDocument(content, cursor);
         scheduleRender(true);
       }
-      ui.toast(`「${tab.name}」已从磁盘重新加载`);
+      ui.toast(tr('main.reloaded', { n: tab.name }));
     } catch (_) {}
   }
 }
@@ -1364,5 +1364,5 @@ function toggleTask(line, checked) {
 boot().catch((e) => {
   console.error('启动失败', e);
   document.body.classList.remove('booting');
-  ui.toast('启动失败：' + (e && e.message ? e.message : e), { error: true, duration: 5000 });
+  ui.toast(tr('main.bootFail') + (e && e.message ? e.message : e), { error: true, duration: 5000 });
 });

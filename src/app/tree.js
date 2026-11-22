@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // 侧边栏文件树：懒加载目录、展开状态记忆、右键文件操作。
 import * as ipc from './ipc.js';
 import { showContextMenu, promptDialog, toast } from './ui.js';
@@ -96,7 +97,7 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
       if (listing.truncated) {
         const more = document.createElement('div');
         more.className = 'tree-empty';
-        more.textContent = '（条目过多，已截断）';
+        more.textContent = tr('tree.truncated');
         container.appendChild(more);
       }
     } catch (e) {
@@ -128,9 +129,9 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
       ...(entry.is_dir
         ? [
             {
-              label: '新建文件',
+              label: tr('tree.newFile'),
               onClick: async () => {
-                const name = await promptDialog({ title: '新建文件', value: '未命名.md' });
+                const name = await promptDialog({ title: tr('tree.newFile'), value: tr('tree.untitledMd') });
                 if (!name) return;
                 const target = entry.path + '/' + name;
                 try {
@@ -143,9 +144,9 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
               },
             },
             {
-              label: '新建文件夹',
+              label: tr('tree.newFolder'),
               onClick: async () => {
-                const name = await promptDialog({ title: '新建文件夹', value: '新建文件夹' });
+                const name = await promptDialog({ title: tr('tree.newFolder'), value: tr('tree.newFolder') });
                 if (!name) return;
                 try {
                   await ipc.ensureDir(entry.path + '/' + name);
@@ -157,11 +158,11 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
             },
             { sep: true },
           ]
-        : [{ label: '打开', onClick: () => openFile(entry.path) }, { sep: true }]),
+        : [{ label: tr('tree.open'), onClick: () => openFile(entry.path) }, { sep: true }]),
       {
-        label: '重命名',
+        label: tr('rename'),
         onClick: async () => {
-          const name = await promptDialog({ title: '重命名', value: entry.name });
+          const name = await promptDialog({ title: tr('rename'), value: entry.name });
           if (!name || name === entry.name) return;
           const target = entry.path.replace(/[^\\/]+$/, name);
           try {
@@ -174,11 +175,11 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
         },
       },
       {
-        label: '删除',
+        label: tr('delete'),
         danger: true,
         onClick: async () => {
-          const ok = await ipc.confirmDialog(`确定删除「${entry.name}」？此操作不可撤销。`, {
-            title: '删除',
+          const ok = await ipc.confirmDialog(tr('tree.deleteConfirm', { n: entry.name }), {
+            title: tr('delete'),
             kind: 'warning',
           });
           if (!ok) return;
@@ -193,7 +194,7 @@ export function createTree({ el, session, openFile, getActivePath, onWorkspaceCh
       },
       { sep: true },
       {
-        label: '在文件管理器中显示',
+        label: tr('tab.reveal'),
         onClick: () => ipc.revealInFolder(entry.path, entry.is_dir).catch(() => {}),
       },
       {

@@ -34,10 +34,10 @@ export function createHistoryPanel({ editor, getDocKey, getDoc, isEnabled }) {
 
   function relativeTime(ts) {
     const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
-    if (s < 60) return '刚刚';
-    if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
-    if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
-    return Math.floor(s / 86400) + ' 天前';
+    if (s < 60) return tr('hist.justNow');
+    if (s < 3600) return tr('hist.minAgo', { n: Math.floor(s / 60) });
+    if (s < 86400) return tr('hist.hourAgo', { n: Math.floor(s / 3600) });
+    return tr('hist.dayAgo', { n: Math.floor(s / 86400) });
   }
 
   function updateEnabledUI() {
@@ -81,7 +81,7 @@ export function createHistoryPanel({ editor, getDocKey, getDoc, isEnabled }) {
       row.className = 'history-item';
       const label = document.createElement('span');
       label.className = 'hi-label';
-      label.textContent = v.label || '编辑';
+      label.textContent = v.label || tr('hist.editLabel');
       const time = document.createElement('span');
       time.className = 'hi-time';
       time.textContent = relativeTime(v.time);
@@ -122,7 +122,7 @@ export function createHistoryPanel({ editor, getDocKey, getDoc, isEnabled }) {
     if (!ok) return;
     // 恢复前先把「当前状态」存成版本，双向可回溯
     try {
-      await ipc.historyRecord(getDocKey(), getDoc(), '恢复点（之前）', { source: 'restore-before' });
+      await ipc.historyRecord(getDocKey(), getDoc(), tr('hist.restorePoint'), { source: 'restore-before' });
     } catch (_) {}
     editor.cm.operation(() => editor.cm.replaceRange(selectedDoc, { line: 0, ch: 0 }, {
       line: editor.cm.lineCount() - 1,

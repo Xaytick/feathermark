@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // 可交互 diff 视图：把「原文 / 建议」按行聚成改动块，支持逐块接受。
 // 从原 AI 编辑弹窗抽出，供 Agent 编辑模板流程复用。
 
@@ -88,7 +89,7 @@ function lineNode(text, kind, segments, onEdit) {
   if (kind === 'add') {
     body.contentEditable = 'true';
     body.spellcheck = false;
-    body.title = '可直接编辑这行建议';
+    body.title = tr('diff.editable');
     if (onEdit) {
       let currentText = text;
       const commit = () => {
@@ -154,10 +155,10 @@ export function buildDiffView(oldText, newText) {
   };
 
   // 改动规模过大（O(n·m) 表会太占内存）时退化为纯文本对照
-  if (!rows) return plainFallback('改动太多，已切换为纯文本对照（无法逐块选择）', newText);
+  if (!rows) return plainFallback(tr('diff.tooLarge'), newText);
 
   const hunks = buildHunks(rows);
-  if (!hunks.length) return plainFallback(null, '模型认为不需要修改。');
+  if (!hunks.length) return plainFallback(null, tr('diff.noChanges'));
 
   const hunkAt = new Map(hunks.map((h, i) => [h.start, { hunk: h, index: i }]));
   const node = document.createElement('div');
@@ -176,8 +177,8 @@ export function buildDiffView(oldText, newText) {
 
   function paint() {
     const accepted = hunks.filter((h) => h.accepted).length;
-    barText.textContent = `${hunks.length} 处改动 · 已选 ${accepted} 处`;
-    barBtn.textContent = accepted === hunks.length ? '全部跳过' : '全部接受';
+    barText.textContent = tr('diff.summary', { t: hunks.length, a: accepted });
+    barBtn.textContent = accepted === hunks.length ? tr('diff.skipAll') : tr('diff.acceptAll');
     for (const item of itemNodes) {
       item.check.checked = item.hunk.accepted;
       item.head.classList.toggle('off', !item.hunk.accepted);
@@ -203,7 +204,7 @@ export function buildDiffView(oldText, newText) {
     if (skipped) {
       const gap = document.createElement('div');
       gap.className = 'dl-head';
-      gap.textContent = `… 跳过 ${skipped} 行未改动 …`;
+      gap.textContent = tr('diff.skipped', { n: skipped });
       node.appendChild(gap);
       skipped = 0;
     }
@@ -224,10 +225,10 @@ export function buildDiffView(oldText, newText) {
         if (typeof onChange === 'function') onChange();
       });
       label.appendChild(check);
-      label.appendChild(document.createTextNode('接受'));
+      label.appendChild(document.createTextNode(tr('diff.accept')));
       const tag = document.createElement('span');
       tag.className = 'dh-tag';
-      tag.textContent = `第 ${at.index + 1} 处`;
+      tag.textContent = tr('diff.changeNo', { n: at.index + 1 });
       head.appendChild(label);
       head.appendChild(tag);
       node.appendChild(head);
@@ -262,7 +263,7 @@ export function buildDiffView(oldText, newText) {
   if (skipped) {
     const gap = document.createElement('div');
     gap.className = 'dl-head';
-    gap.textContent = `… 跳过 ${skipped} 行未改动 …`;
+    gap.textContent = tr('diff.skipped', { n: skipped });
     node.appendChild(gap);
   }
 

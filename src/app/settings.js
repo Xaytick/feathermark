@@ -153,7 +153,7 @@ export function createSettings({ body, onApply }) {
     const sel = document.createElement('select');
     const def = document.createElement('option');
     def.value = '';
-    def.textContent = '跟随界面字体';
+    def.textContent = tr('set.followUiFont');
     sel.appendChild(def);
     if (fonts) {
       for (const f of fonts) {
@@ -166,7 +166,7 @@ export function createSettings({ body, onApply }) {
     } else {
       const o = document.createElement('option');
       o.value = current || '';
-      o.textContent = current || '加载字体列表…';
+      o.textContent = current || tr('set.loadingFonts');
       sel.appendChild(o);
     }
     sel.addEventListener('change', () => onChange(sel.value));
@@ -187,19 +187,19 @@ export function createSettings({ body, onApply }) {
     aiBox.className = 'cs-ai-box';
     const aiTitle = document.createElement('div');
     aiTitle.className = 'cs-ai-title';
-    aiTitle.textContent = 'AI 生成配色';
+    aiTitle.textContent = tr('set.aiColors');
     const aiHint = document.createElement('div');
     aiHint.className = 'cs-hint';
-    aiHint.textContent = '描述你想要的风格，AI 生成一组和谐配色并填入下方配色框。';
+    aiHint.textContent = tr('set.aiColorsHint');
     const aiInput = document.createElement('input');
     aiInput.type = 'text';
     aiInput.className = 'cs-ai-input';
     aiInput.id = 'cs-ai-input';
-    aiInput.placeholder = '例如：温暖的秋日森林、赛博朋克霓虹、宁静的莫兰迪色';
+    aiInput.placeholder = tr('set.aiColorsPlaceholder');
     aiInput.maxLength = 120;
     const aiBtn = document.createElement('button');
     aiBtn.className = 'btn';
-    aiBtn.textContent = '生成配色';
+    aiBtn.textContent = tr('set.aiColorsGen');
     aiBtn.id = 'cs-ai-btn';
     const aiMsg = document.createElement('div');
     aiMsg.className = 'cs-save-msg';
@@ -210,13 +210,13 @@ export function createSettings({ body, onApply }) {
       aiMsg.textContent = '';
       if (!prompt) {
         aiMsg.className = 'cs-save-msg err';
-        aiMsg.textContent = '请先输入配色描述';
+        aiMsg.textContent = tr('set.aiColorsNeedDesc');
         aiInput.focus();
         return;
       }
       aiBtn.disabled = true;
       aiMsg.className = 'cs-save-msg';
-      aiMsg.textContent = '正在生成…';
+      aiMsg.textContent = tr('generating');
       try {
         let cfg = {};
         try { cfg = await ipc.aiConfigGet() || {}; } catch (_) {}
@@ -237,20 +237,20 @@ export function createSettings({ body, onApply }) {
             lastErr = e;
           }
         }
-        if (!res) throw lastErr || new Error('AI 没有返回内容，请重试');
+        if (!res) throw lastErr || new Error(tr('set.aiNoContent'));
         const content = String((res && res.content) || '').trim();
-        if (!content) throw new Error('AI 没有返回内容，请重试');
+        if (!content) throw new Error(tr('set.aiNoContent'));
         const hexes = content.match(/#[\da-fA-F]{6}\b|#[\da-fA-F]{3}\b/g);
         const result = parseColors(hexes ? hexes.join('\n') : content);
-        if (!result.colors.length) throw new Error('AI 返回的颜色无法识别，请换个描述重试');
+        if (!result.colors.length) throw new Error(tr('set.aiBadColors'));
         input.value = result.colors.map((c) => c.hex).join('\n');
         renderPreview(result);
         aiMsg.className = 'cs-save-msg ok';
-        aiMsg.textContent = `已生成 ${result.colors.length} 个颜色，可在下方调整或保存`;
+        aiMsg.textContent = tr('set.aiColorsDone', { n: result.colors.length });
         input.scrollIntoView({ block: 'nearest' });
       } catch (e) {
         aiMsg.className = 'cs-save-msg err';
-        aiMsg.textContent = '生成失败：' + ((e && e.message) ? e.message : String(e));
+        aiMsg.textContent = tr('set.aiColorsFail') + ((e && e.message) ? e.message : String(e));
       } finally {
         aiBtn.disabled = false;
       }
@@ -271,7 +271,7 @@ export function createSettings({ body, onApply }) {
     // 1) 批量导入
     const hint = document.createElement('div');
     hint.className = 'cs-hint';
-    hint.textContent = '支持 hex（#fff / #2F6FEB）、rgb(15,138,95)、「255, 0, 0」等格式，换行或逗号分隔多个。';
+    hint.textContent = tr('set.colorFormats');
     wrap.appendChild(hint);
 
     const input = document.createElement('textarea');
@@ -284,7 +284,7 @@ export function createSettings({ body, onApply }) {
 
     const parseBtn = document.createElement('button');
     parseBtn.className = 'btn cs-parse-btn';
-    parseBtn.textContent = '解析预览';
+    parseBtn.textContent = tr('set.parsePreview');
     wrap.appendChild(parseBtn);
 
     // 2) 解析结果
@@ -329,7 +329,7 @@ export function createSettings({ body, onApply }) {
       if (!result.colors.length && !result.errors.length) {
         const empty = document.createElement('div');
         empty.className = 'cs-preview-empty';
-        empty.textContent = '输入颜色后点「解析预览」';
+        empty.textContent = tr('set.colorEmpty');
         preview.appendChild(empty);
       }
       saveRow.style.display = parsed.length ? '' : 'none';
@@ -350,11 +350,11 @@ export function createSettings({ body, onApply }) {
     nameInput.type = 'text';
     nameInput.className = 'cs-name-input';
     nameInput.id = 'cs-name-input';
-    nameInput.placeholder = '主题名称';
+    nameInput.placeholder = tr('set.themeName');
     nameInput.maxLength = 40;
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn';
-    saveBtn.textContent = '保存为主题';
+    saveBtn.textContent = tr('set.saveAsTheme');
     const saveMsg = document.createElement('div');
     saveMsg.className = 'cs-save-msg';
     saveBtn.addEventListener('click', () => {
@@ -367,7 +367,7 @@ export function createSettings({ body, onApply }) {
         return;
       }
       saveMsg.className = 'cs-save-msg ok';
-      saveMsg.textContent = `已保存「${res.scheme.name}」，可在上方主题卡片中选用`;
+      saveMsg.textContent = tr('set.themeSaved', { n: res.scheme.name });
       nameInput.value = '';
       // 新主题立即生效并重绘设置
       prefs.theme.active = res.scheme.id;
@@ -397,7 +397,7 @@ export function createSettings({ body, onApply }) {
     // 1) 主题卡片网格：内置预设 + 自定义主题（同样式展示）
     const presetLabel = document.createElement('div');
     presetLabel.className = 'set-desc';
-    presetLabel.textContent = '主题预设（内置 + 自定义）';
+    presetLabel.textContent = tr('set.themePresets');
     wrap.appendChild(presetLabel);
     const presetGrid = document.createElement('div');
     presetGrid.className = 'ts-presets';
@@ -410,7 +410,7 @@ export function createSettings({ body, onApply }) {
       .map((sc) => {
         const tokens = tokensFromColors(sc.colors, sc.tone) || {};
         return {
-          id: sc.id, name: sc.name, desc: '自定义主题', tokens, custom: true,
+          id: sc.id, name: sc.name, desc: tr('set.customTheme'), tokens, custom: true,
         };
       });
     const allThemes = [...builtins, ...customs];
@@ -451,7 +451,7 @@ export function createSettings({ body, onApply }) {
         const del = document.createElement('button');
         del.className = 'ts-preset-del';
         del.textContent = '×';
-        del.title = '删除主题';
+        del.title = tr('set.delTheme');
         del.addEventListener('click', (e) => {
           e.stopPropagation();
           deleteScheme(t.id);
@@ -471,7 +471,7 @@ export function createSettings({ body, onApply }) {
     const createLabel = document.createElement('div');
     createLabel.className = 'set-desc';
     createLabel.style.marginTop = '14px';
-    createLabel.textContent = '新建主题';
+    createLabel.textContent = tr('set.newTheme');
     wrap.appendChild(createLabel);
     wrap.appendChild(buildColorSchemesSection());
 
@@ -491,7 +491,7 @@ export function createSettings({ body, onApply }) {
     const canvasRow = document.createElement('div');
     canvasRow.className = 'set-row';
     const canvasLeft = document.createElement('div');
-    canvasLeft.innerHTML = '<div class="set-label">背景画布</div><div class="set-desc">叠加在编辑区的纹理</div>';
+    canvasLeft.innerHTML = tr('set.canvasHtml');
     const canvasCtrl = document.createElement('div');
     canvasCtrl.className = 'set-control';
     canvasCtrl.appendChild(segmented(
@@ -506,7 +506,7 @@ export function createSettings({ body, onApply }) {
     // 纹理强度
     const strengthRow = document.createElement('div');
     strengthRow.className = 'set-row';
-    strengthRow.innerHTML = '<div class="set-label">纹理强度</div>';
+    strengthRow.innerHTML = '<div class="set-label">' + tr('set.strength') + '</div>';
     const strengthCtrl = document.createElement('div');
     strengthCtrl.className = 'set-control';
     strengthCtrl.appendChild(slider(params.canvasStrength, {
@@ -519,7 +519,7 @@ export function createSettings({ body, onApply }) {
     const imgLabel = document.createElement('div');
     imgLabel.className = 'set-desc';
     imgLabel.style.marginTop = '10px';
-    imgLabel.textContent = '背景图片';
+    imgLabel.textContent = tr('set.bgImage');
     wrap.appendChild(imgLabel);
 
     const imgBox = document.createElement('div');
@@ -529,16 +529,16 @@ export function createSettings({ body, onApply }) {
     const thumbImg = document.createElement('img');
     thumbImg.alt = '';
     const thumbEmpty = document.createElement('span');
-    thumbEmpty.textContent = '无图片';
+    thumbEmpty.textContent = tr('set.noImage');
     thumb.appendChild(thumbImg); thumb.appendChild(thumbEmpty);
     const imgInfo = document.createElement('div');
     imgInfo.className = 'ts-img-info';
     const pickBtn = document.createElement('button');
     pickBtn.className = 'btn ghost';
-    pickBtn.textContent = '选择图片';
+    pickBtn.textContent = tr('set.pickImage');
     const clearBtn = document.createElement('button');
     clearBtn.className = 'mini-btn';
-    clearBtn.textContent = '清除';
+    clearBtn.textContent = tr('clear');
     const imgMsg = document.createElement('div');
     imgMsg.className = 'cs-save-msg';
 
@@ -562,16 +562,16 @@ export function createSettings({ body, onApply }) {
         const file = files[0];
         if (!file) return;
         imgMsg.className = 'cs-save-msg';
-        imgMsg.textContent = '正在处理图片…';
+        imgMsg.textContent = tr('set.processingImage');
         pickBtn.disabled = true;
         const result = await loadAndCompressImage(file, ipc);
         setParam('backgroundImage', result.dataUrl);
         syncImageThumb(); syncImgControls();
         imgMsg.className = 'cs-save-msg ok';
-        imgMsg.textContent = `已设置 · ${result.width}×${result.height} · 约 ${Math.round(result.bytes / 1024)} KB`;
+        imgMsg.textContent = tr('set.imageSet', { w: result.width, h: result.height, k: Math.round(result.bytes / 1024) });
       } catch (e) {
         imgMsg.className = 'cs-save-msg err';
-        imgMsg.textContent = '设置失败：' + ((e && e.message) || e);
+        imgMsg.textContent = tr('set.imageFail') + ((e && e.message) || e);
       } finally {
         pickBtn.disabled = false;
       }
@@ -590,7 +590,7 @@ export function createSettings({ body, onApply }) {
     const syncImgControls = () => { imgControls.style.display = params.backgroundImage ? '' : 'none'; };
     const opRow = document.createElement('div');
     opRow.className = 'set-row';
-    opRow.innerHTML = '<div class="set-label">图片透明度</div>';
+    opRow.innerHTML = '<div class="set-label">' + tr('set.opacity') + '</div>';
     const opCtrl = document.createElement('div');
     opCtrl.className = 'set-control';
     opCtrl.appendChild(slider(params.imageOpacity, {
@@ -600,7 +600,7 @@ export function createSettings({ body, onApply }) {
 
     const blurRow = document.createElement('div');
     blurRow.className = 'set-row';
-    blurRow.innerHTML = '<div class="set-label">图片模糊度</div>';
+    blurRow.innerHTML = '<div class="set-label">' + tr('set.blur') + '</div>';
     const blurCtrl = document.createElement('div');
     blurCtrl.className = 'set-control';
     blurCtrl.appendChild(slider(params.imageBlur, {
@@ -610,11 +610,11 @@ export function createSettings({ body, onApply }) {
 
     const fitRow = document.createElement('div');
     fitRow.className = 'set-row';
-    fitRow.innerHTML = '<div class="set-label">填充方式</div>';
+    fitRow.innerHTML = '<div class="set-label">' + tr('set.fit') + '</div>';
     const fitCtrl = document.createElement('div');
     fitCtrl.className = 'set-control';
     fitCtrl.appendChild(segmented(
-      [{ label: '铺满', value: 'cover' }, { label: '适应', value: 'contain' }, { label: '平铺', value: 'repeat' }],
+      [{ label: tr('set.fitCover'), value: 'cover' }, { label: tr('set.fitContain'), value: 'contain' }, { label: tr('set.fitRepeat'), value: 'repeat' }],
       params.imageSize, (v) => setParam('imageSize', v), { small: true }
     ));
     fitRow.appendChild(fitCtrl); imgControls.appendChild(fitRow);
@@ -625,7 +625,7 @@ export function createSettings({ body, onApply }) {
     const typoLabel = document.createElement('div');
     typoLabel.className = 'set-desc';
     typoLabel.style.marginTop = '10px';
-    typoLabel.textContent = '排版';
+    typoLabel.textContent = tr('set.typography');
     wrap.appendChild(typoLabel);
     const t = params.typography;
     const mkTypoRow = (label, control) => {
@@ -637,18 +637,18 @@ export function createSettings({ body, onApply }) {
       c.className = 'set-control'; c.appendChild(control);
       r.appendChild(l); r.appendChild(c); wrap.appendChild(r);
     };
-    mkTypoRow('行高', slider(t.lineHeight, { min: 1.3, max: 2.1, step: 0.02, format: (v) => v.toFixed(2) },
+    mkTypoRow(tr('set.lineHeight'), slider(t.lineHeight, { min: 1.3, max: 2.1, step: 0.02, format: (v) => v.toFixed(2) },
       (v) => { t.lineHeight = v; update(); }));
-    mkTypoRow('字距', slider(t.letterSpacing, { min: -1, max: 3, step: 0.1, format: (v) => v.toFixed(1) + 'px' },
+    mkTypoRow(tr('set.letterSpacing'), slider(t.letterSpacing, { min: -1, max: 3, step: 0.1, format: (v) => v.toFixed(1) + 'px' },
       (v) => { t.letterSpacing = v; update(); }));
-    mkTypoRow('正文宽度', slider(t.maxWidth, { min: 0, max: 1200, step: 20, format: (v) => (v ? v + 'px' : '不限') },
+    mkTypoRow(tr('set.bodyWidth'), slider(t.maxWidth, { min: 0, max: 1200, step: 20, format: (v) => (v ? v + 'px' : tr('set.unlimited')) },
       (v) => { t.maxWidth = v; update(); }));
-    mkTypoRow('光标宽度', slider(t.cursorWidth, { min: 1, max: 4, step: 1, format: (v) => v + 'px' },
+    mkTypoRow(tr('set.cursorWidth'), slider(t.cursorWidth, { min: 1, max: 4, step: 1, format: (v) => v + 'px' },
       (v) => { t.cursorWidth = v; update(); }));
 
     const activeLineRow = document.createElement('div');
     activeLineRow.className = 'set-row';
-    activeLineRow.innerHTML = '<div class="set-label">当前行高亮</div>';
+    activeLineRow.innerHTML = '<div class="set-label">' + tr('set.activeLine') + '</div>';
     const activeLineCtrl = document.createElement('div');
     activeLineCtrl.className = 'set-control';
     activeLineCtrl.appendChild(toggle(t.activeLine, (v) => { t.activeLine = v; update(); }));
@@ -664,13 +664,13 @@ export function createSettings({ body, onApply }) {
 
     const baseInput = document.createElement('input');
     baseInput.type = 'text';
-    baseInput.placeholder = 'https://你的服务商/v1';
+    baseInput.placeholder = tr('set.baseUrlPlaceholder');
     baseInput.spellcheck = false;
 
     const modelInput = document.createElement('input');
     modelInput.type = 'text';
     modelInput.id = 'ai-add-model-input';
-    modelInput.placeholder = '模型 ID，例如 deepseek-chat';
+    modelInput.placeholder = tr('set.modelPlaceholder');
     modelInput.spellcheck = false;
     modelInput.setAttribute('list', 'ai-model-list');
     const modelList = document.createElement('datalist');
@@ -678,25 +678,25 @@ export function createSettings({ body, onApply }) {
 
     const fetchBtn = document.createElement('button');
     fetchBtn.className = 'mini-btn';
-    fetchBtn.textContent = '拉取列表';
-    fetchBtn.title = '从接口的 /models 拉取可用模型';
+    fetchBtn.textContent = tr('set.fetchModels');
+    fetchBtn.title = tr('set.fetchModelsHint');
 
     const extraInput = document.createElement('input');
     extraInput.type = 'text';
     extraInput.placeholder = '{}';
     extraInput.spellcheck = false;
-    extraInput.title = 'JSON 对象，合并进请求体，例如 {"reasoning_effort":"none"}';
+    extraInput.title = tr('set.extraBodyHint');
 
     const skipToggle = toggle(false, () => {});
 
     const keyInput = document.createElement('input');
     keyInput.type = 'password';
-    keyInput.placeholder = '粘贴 API Key';
+    keyInput.placeholder = tr('set.keyPlaceholder');
     keyInput.spellcheck = false;
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn';
-    saveBtn.textContent = '保存并测试';
+    saveBtn.textContent = tr('set.saveAndTest');
 
     const status = document.createElement('div');
     status.className = 'ai-config-note';
@@ -712,7 +712,7 @@ export function createSettings({ body, onApply }) {
       return r;
     };
 
-    wrap.appendChild(wideRow('接口地址', 'OpenAI 兼容地址，通常以 /v1 结尾', baseInput));
+    wrap.appendChild(wideRow(tr('set.baseUrl'), tr('set.baseUrlDesc'), baseInput));
 
     // 已添加模型清单：点名称选用，点 × 删除
     const chips = document.createElement('div');
@@ -725,19 +725,19 @@ export function createSettings({ body, onApply }) {
     const addBtn = document.createElement('button');
     addBtn.className = 'mini-btn';
     addBtn.type = 'button';
-    addBtn.textContent = '添加';
-    addBtn.title = '把模型 ID 加入清单';
+    addBtn.textContent = tr('add');
+    addBtn.title = tr('set.addModelHint');
     addRow.appendChild(modelInput);
     addRow.appendChild(addBtn);
     addRow.appendChild(fetchBtn);
 
-    wrap.appendChild(wideRow('模型', '已添加的模型供 Agent 面板切换；点名称选用，点 × 删除', chips));
-    wrap.appendChild(wideRow('添加模型', '手填模型 ID 加入清单，或从接口拉取后选择', addRow));
-    wrap.appendChild(wideRow('API Key', '只存在本机配置文件里，不写入浏览器存储', keyInput));
+    wrap.appendChild(wideRow(tr('set.model'), tr('set.modelDesc'), chips));
+    wrap.appendChild(wideRow(tr('set.addModelRow'), tr('set.addModelRowDesc'), addRow));
+    wrap.appendChild(wideRow('API Key', tr('set.keyDesc'), keyInput));
     wrap.appendChild(
-      wideRow('额外请求参数', 'JSON 对象，合并进请求体，一般不用改', extraInput)
+      wideRow(tr('set.extraBody'), tr('set.extraBodyDesc'), extraInput)
     );
-    wrap.appendChild(wideRow('不发送 temperature', '部分推理模型会拒绝这个字段', skipToggle));
+    wrap.appendChild(wideRow(tr('set.skipTemp'), tr('set.skipTempDesc'), skipToggle));
     wrap.appendChild(result);
     wrap.appendChild(status);
 
@@ -753,7 +753,7 @@ export function createSettings({ body, onApply }) {
       if (!list.length) {
         const empty = document.createElement('div');
         empty.className = 'ai-model-chips-empty';
-        empty.textContent = '还没有添加模型';
+        empty.textContent = tr('set.noModels');
         chips.appendChild(empty);
       }
       list.forEach((name) => {
@@ -763,7 +763,7 @@ export function createSettings({ body, onApply }) {
         label.type = 'button';
         label.className = 'ai-model-chip-name';
         label.textContent = name;
-        label.title = '设为当前模型';
+        label.title = tr('set.setCurrentModel');
         label.addEventListener('click', () => {
           modelInput.value = name;
           result.textContent = '';
@@ -773,7 +773,7 @@ export function createSettings({ body, onApply }) {
         x.type = 'button';
         x.className = 'ai-model-chip-x';
         x.textContent = '×';
-        x.title = '从清单移除';
+        x.title = tr('set.removeFromList');
         x.addEventListener('click', () => removeModel(name));
         chip.appendChild(label);
         chip.appendChild(x);
@@ -795,13 +795,13 @@ export function createSettings({ body, onApply }) {
       const name = modelInput.value.trim();
       if (!name) {
         result.style.color = 'var(--text-faint)';
-        result.textContent = '先输入模型 ID，再点添加。';
+        result.textContent = tr('set.addFirst');
         return;
       }
       const isNew = addModel(name);
       renderModelChips();
       result.style.color = 'var(--accent)';
-      result.textContent = isNew ? `已添加：${name}` : '该模型已在清单中。';
+      result.textContent = isNew ? tr('set.modelAdded', { n: name }) : tr('set.modelExists');
     }
     addBtn.addEventListener('click', addCurrentModel);
     modelInput.addEventListener('keydown', (e) => {
@@ -817,21 +817,21 @@ export function createSettings({ body, onApply }) {
         baseInput.value = aiCfg.base_url || '';
         modelInput.value = aiCfg.model || '';
         keyInput.value = '';
-        keyInput.placeholder = aiCfg.has_key ? `已保存 ${aiCfg.key_hint}（留空不修改）` : '粘贴 API Key（本地模型可留空）';
+        keyInput.placeholder = aiCfg.has_key ? tr('set.keySaved', { k: aiCfg.key_hint }) : tr('set.keyPlaceholder2');
         extraInput.value = aiCfg.extra_body || '{}';
         skipToggle.classList.toggle('on', !!aiCfg.skip_temperature);
         syncModelsFromConfig(aiCfg.model);
         renderModelChips();
         status.textContent = '';
       } catch (e) {
-        status.textContent = '读取 AI 配置失败：' + ipc.describeError(e);
+        status.textContent = tr('set.readConfigFail') + ipc.describeError(e);
       }
     }
 
     fetchBtn.addEventListener('click', async () => {
       fetchBtn.disabled = true;
       result.style.color = 'var(--text-faint)';
-      result.textContent = '正在拉取模型列表…';
+      result.textContent = tr('set.fetchingModels');
       try {
         // 先落盘当前地址与 Key，Rust 侧才有配置可读
         await ipc.aiConfigSet({
@@ -852,11 +852,11 @@ export function createSettings({ body, onApply }) {
           modelList.appendChild(o);
         });
         result.style.color = 'var(--accent)';
-        result.textContent = `拉到 ${list.length} 个模型，输入框可下拉选择，点「添加」加入清单。`;
+        result.textContent = tr('set.fetchedModels', { n: list.length });
         if (!modelInput.value) modelInput.value = list[0];
       } catch (e) {
         result.style.color = '#e5484d';
-        result.textContent = '拉取失败：' + ipc.describeError(e);
+        result.textContent = tr('set.fetchFail') + ipc.describeError(e);
       } finally {
         fetchBtn.disabled = false;
       }
@@ -865,7 +865,7 @@ export function createSettings({ body, onApply }) {
     saveBtn.addEventListener('click', async () => {
       saveBtn.disabled = true;
       result.style.color = 'var(--text-faint)';
-      result.textContent = '正在保存并测试连接…';
+      result.textContent = tr('set.testingConnection');
       try {
         await ipc.aiConfigSet({
           provider: 'custom',
@@ -880,12 +880,12 @@ export function createSettings({ body, onApply }) {
         addModel(modelInput.value.trim());
         const r = await ipc.aiTest();
         result.style.color = 'var(--accent)';
-        result.textContent = `连接正常 · ${r.model} · ${r.latency_ms}ms`;
+        result.textContent = tr('set.connectionOk', { m: r.model, ms: r.latency_ms });
         keyInput.value = '';
         load();
       } catch (e) {
         result.style.color = '#e5484d';
-        result.textContent = '测试失败：' + ipc.describeError(e);
+        result.textContent = tr('set.testFail') + ipc.describeError(e);
       } finally {
         saveBtn.disabled = false;
       }
@@ -899,15 +899,15 @@ export function createSettings({ body, onApply }) {
     body.innerHTML = '';
 
     /* ---------------------------------------------------------- 外观 */
-    const g1 = group('外观', 'appearance');
+    const g1 = group(tr('set.appearance'), 'appearance');
     g1.appendChild(
       row(
-        '默认分屏',
-        '左右或上下对照；也可以用状态栏按钮临时切换',
+        tr('set.splitDefault'),
+        tr('set.splitDefaultDesc'),
         segmented(
           [
-            { label: '左右', value: 'h' },
-            { label: '上下', value: 'v' },
+            { label: tr('set.horizontal'), value: 'h' },
+            { label: tr('set.vertical'), value: 'v' },
           ],
           prefs.splitDir,
           (v) => apply('splitDir', v)
@@ -917,23 +917,23 @@ export function createSettings({ body, onApply }) {
     body.appendChild(g1);
 
     /* ---------------------------------------------------------- Theme Studio */
-    const gStudio = group('主题', 'appearance');
+    const gStudio = group(tr('set.themeGroup'), 'appearance');
     gStudio.appendChild(buildThemeStudioSection());
     body.appendChild(gStudio);
 
     /* ---------------------------------------------------------- 字体 */
-    const g2 = group('字体', 'editor');
-    g2.appendChild(row('编辑器字体', '', fontSelect(prefs.editorFont, (v) => apply('editorFont', v))));
+    const g2 = group(tr('set.fonts'), 'editor');
+    g2.appendChild(row(tr('set.editorFont'), '', fontSelect(prefs.editorFont, (v) => apply('editorFont', v))));
     g2.appendChild(
-      row('编辑器字号', '', numberInput(prefs.editorSize, { min: 11, max: 28 }, (v) => apply('editorSize', v)))
+      row(tr('set.editorSize'), '', numberInput(prefs.editorSize, { min: 11, max: 28 }, (v) => apply('editorSize', v)))
     );
-    g2.appendChild(row('预览字体', '', fontSelect(prefs.previewFont, (v) => apply('previewFont', v))));
+    g2.appendChild(row(tr('set.previewFont'), '', fontSelect(prefs.previewFont, (v) => apply('previewFont', v))));
     g2.appendChild(
-      row('预览字号', '', numberInput(prefs.previewSize, { min: 11, max: 28 }, (v) => apply('previewSize', v)))
+      row(tr('set.previewSize'), '', numberInput(prefs.previewSize, { min: 11, max: 28 }, (v) => apply('previewSize', v)))
     );
-    g2.appendChild(row('代码字体', '', fontSelect(prefs.codeFont, (v) => apply('codeFont', v))));
+    g2.appendChild(row(tr('set.codeFont'), '', fontSelect(prefs.codeFont, (v) => apply('codeFont', v))));
     g2.appendChild(
-      row('代码字号', '', numberInput(prefs.codeSize, { min: 10, max: 22 }, (v) => apply('codeSize', v)))
+      row(tr('set.codeSize'), '', numberInput(prefs.codeSize, { min: 10, max: 22 }, (v) => apply('codeSize', v)))
     );
     body.appendChild(g2);
 
@@ -945,23 +945,23 @@ export function createSettings({ body, onApply }) {
         tr('set.language'),
         tr('set.languageDesc'),
         segmented(
-          [{ label: '中文', value: 'zh' }, { label: 'English', value: 'en' }],
+          [{ label: tr('set.zh'), value: 'zh' }, { label: 'English', value: 'en' }],
           locale(),
-          (v) => { setLocale(v).catch(() => {}); }
+          (v) => { setLocale(v).then(() => render()).catch(() => {}); }
         )
       )
     );
     g3.appendChild(
       row(
-        '自动换行',
-        '长段落按窗口宽度折行',
+        tr('set.lineWrap'),
+        tr('set.lineWrapDesc'),
         toggle(prefs.lineWrap, (v) => {
           apply('lineWrap', v);
           document.getElementById('sb-wrap').classList.toggle('on', v);
         })
       )
     );
-    g3.appendChild(row('显示行号', '', toggle(prefs.lineNumbers, (v) => apply('lineNumbers', v))));
+    g3.appendChild(row(tr('set.lineNumbers'), '', toggle(prefs.lineNumbers, (v) => apply('lineNumbers', v))));
     g3.appendChild(row(
       tr('set.autoSave'),
       tr('set.autoSaveDesc'),
@@ -973,33 +973,28 @@ export function createSettings({ body, onApply }) {
       toggle(prefs.historyEnabled, (v) => apply('historyEnabled', v))
     ));
     g3.appendChild(
-      row('自动配对标点', '输入 ( [ " 时自动补全另一半', toggle(prefs.autoPairs, (v) => apply('autoPairs', v)))
+      row(tr('set.autoPairs'), tr('set.autoPairsDesc'), toggle(prefs.autoPairs, (v) => apply('autoPairs', v)))
     );
     g3.appendChild(
       row(
-        '软换行渲染',
-        '把单个换行也当成分段（更接近你在源码里看到的断行）',
+        tr('set.softBreaks'),
+        tr('set.softBreaksDesc'),
         toggle(prefs.softBreaks, (v) => apply('softBreaks', v))
       )
     );
-    g3.appendChild(row('拼写检查', '依赖系统拼写词典', toggle(prefs.spellcheck, (v) => apply('spellcheck', v))));
+    g3.appendChild(row(tr('set.spellcheck'), tr('set.spellcheckDesc'), toggle(prefs.spellcheck, (v) => apply('spellcheck', v))));
     body.appendChild(g3);
 
     /* ---------------------------------------------------------- AI */
-    const gAi = group('AI 模型与接口', 'ai');
+    const gAi = group(tr('set.aiGroup'), 'ai');
     gAi.appendChild(buildAiSection());
     body.appendChild(gAi);
 
     /* ---------------------------------------------------------- 关于 */
-    const g4 = group('关于', 'about');
+    const g4 = group(tr('set.aboutGroup'), 'about');
     const about = document.createElement('div');
     about.className = 'about-block';
-    about.innerHTML = `
-      <div><strong>FeatherMark</strong> 0.1.0 · 轻量跨平台 Markdown 编辑器</div>
-      <div>技术栈：Tauri v2 + Rust · CodeMirror 5 · unified/remark 渲染管线 · KaTeX · Mermaid</div>
-      <div>预览渲染器与文件命令层参考并移植自开源项目
-        <a href="#" id="about-tizu">TizuMark</a>（GPL-3.0），本项目同样以 GPL-3.0 发布。</div>
-      <div style="margin-top:8px;color:var(--text-faint)">快捷键：⌘N 新建 · ⌘O 打开 · ⌘S 保存 · ⌘P 快速打开 · ⌘F 查找 · ⌘⇧F 工作区搜索 · ⌘J Agent 编辑 · ⌘, 设置</div>`;
+    about.innerHTML = tr('set.aboutHtml');
     g4.appendChild(about);
     body.appendChild(g4);
 

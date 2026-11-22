@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // 快速打开（⌘P）：按路径模糊匹配工作区文件，键盘上下选择。
 import * as ipc from './ipc.js';
 
@@ -46,7 +47,7 @@ export function createQuickOpen({ overlay, input, list, getWorkspace, onOpen }) 
   function paint() {
     list.innerHTML = '';
     if (!filtered.length) {
-      list.innerHTML = '<div class="tree-empty">没有匹配的文件</div>';
+      list.innerHTML = '<div class="tree-empty">'+tr('quick.noMatch');
       return;
     }
     filtered.forEach((f, i) => {
@@ -78,10 +79,10 @@ export function createQuickOpen({ overlay, input, list, getWorkspace, onOpen }) 
     const ws = getWorkspace();
     overlay.classList.remove('hidden');
     input.value = '';
-    list.innerHTML = '<div class="tree-empty">正在建立文件索引…</div>';
+    list.innerHTML = '<div class="tree-empty">'+tr('quick.indexing');
     input.focus();
     if (!ws) {
-      list.innerHTML = '<div class="tree-empty">还没有打开文件夹</div>';
+      list.innerHTML = '<div class="tree-empty">'+tr('quick.noFolder');
       return;
     }
     if (cacheRoot !== ws) {

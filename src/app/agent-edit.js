@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 // Agent 编辑模板流程。
 //
 // 这是原「AI 编辑」弹窗的收敛版：动作来自共享编辑模板，参数按模板动态渲染，
@@ -57,11 +58,13 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
       control = document.createElement('select');
       for (const opt of p.options || []) {
         const o = document.createElement('option');
-        o.value = opt;
-        o.textContent = opt;
+        // options 支持字符串或 {value,label}：value 保持稳定（供逻辑判断），label 可本地化
+        o.value = typeof opt === 'object' ? opt.value : opt;
+        o.textContent = typeof opt === 'object' ? opt.label : opt;
         control.appendChild(o);
       }
-      control.value = params[p.key] || p.default || (p.options || [])[0] || '';
+      const first = (p.options || [])[0];
+      control.value = params[p.key] || p.default || (typeof first === 'object' ? first.value : first) || '';
     } else if (p.type === 'textarea') {
       control = document.createElement('textarea');
       control.rows = 2;
@@ -93,7 +96,7 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
     if (!template.params || !template.params.length) {
       const note = document.createElement('div');
       note.className = 'ai-param-note';
-      note.textContent = `「${template.label}」没有额外参数：${template.hint}`;
+      note.textContent = tr('edit.noParams', { label: template.label, hint: template.hint });
       paramsEl.appendChild(note);
       return;
     }
@@ -137,8 +140,8 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
       to: { line: toLine - 1, ch: (docLines[toLine - 1] || '').length },
     };
     scopeEl.textContent = hasSel
-      ? `选中 ${toLine - fromLine + 1} 行 · 只替换这几行`
-      : `整篇 ${docLines.length} 行 · 会替换全文`;
+      ? tr('edit.scopeSel', { n: toLine - fromLine + 1 })
+      : tr('edit.scopeDoc', { n: docLines.length });
     return scope;
   }
 
@@ -164,7 +167,7 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
     btnApply.classList.add('hidden');
     btnApplyAll.classList.add('hidden');
     btnGen.classList.remove('hidden');
-    showHint('选择模板并配置参数后点「生成」。先看逐块差异，再决定应用哪些改动。');
+    showHint(tr('edit.hint'));
   }
 
   const took = (ms) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`);
@@ -174,25 +177,25 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
     const total = view.changeCount;
     const accepted = view.acceptedCount();
     const partial = total > 0 && accepted < total;
-    btnApply.textContent = partial ? `只应用已选 ${accepted} 处` : '应用替换';
+    btnApply.textContent = partial ? tr('edit.applySelected', { n: accepted }) : tr('edit.apply');
     btnApply.disabled = accepted === 0;
     btnApplyAll.classList.toggle('hidden', !partial);
     metaEl.classList.remove('error');
-    const parts = [result.model || '模型'];
-    parts.push(`补丁 ${result.edits || total} 处`);
+    const parts = [result.model || tr('edit.model')];
+    parts.push(tr('edit.patchCount', { n: result.edits || total }));
     if (result.promptTokens || result.completionTokens) {
-      parts.push(`入 ${result.promptTokens} / 出 ${result.completionTokens} tokens`);
+      parts.push(tr('edit.tokens', { p: result.promptTokens, c: result.completionTokens }));
     }
     parts.push(took(result.latency));
-    if (result.rounds > 1) parts.push(`修正 ${result.rounds - 1} 次`);
-    parts.push(`${total} 处改动`);
+    if (result.rounds > 1) parts.push(tr('edit.retries', { n: result.rounds - 1 }));
+    parts.push(tr('edit.changeCount', { n: total }));
     metaEl.textContent = parts.join(' · ');
   }
 
   function validateParams() {
     for (const p of template.params || []) {
       if (p.required && !String(params[p.key] || '').trim()) {
-        metaEl.textContent = `「${template.label}」需要填写：${p.label}`;
+        metaEl.textContent = tr('edit.needParam', { t: template.label, p: p.label });
         metaEl.classList.add('error');
         const first = paramsEl.querySelector('textarea,input,select');
         if (first) first.focus();
@@ -206,7 +209,7 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
     if (busy) return;
     captureScope();
     if (!scope.text.trim()) {
-      toast('没有可处理的内容', { error: true });
+      toast(tr('edit.noContent'), { error: true });
       return;
     }
     if (!validateParams()) return;
@@ -325,7 +328,7 @@ export function createAgentEdit({ editor, onNeedConfig, onVersionRecorded }) {
   function open(templateId = null, { source = 'agent', initialInstruction = '' } = {}) {
     const s = captureScope();
     if (!s.text.trim()) {
-      toast('文档还是空的，先写点东西', { error: true });
+      toast(tr('edit.docEmpty'), { error: true });
       return;
     }
     template = templateById(templateId || 'polish');
