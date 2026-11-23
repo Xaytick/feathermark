@@ -12,6 +12,7 @@
 export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTaskToggle, onImageClick, postProcess, softBreaks, debounceMs = 220, setTimer = null }) {
   const htmlCache = new Map();   // 块源文本 → 渲染后的 HTML（跨切换复用）
   const blockMarks = new Map();  // 块索引 → TextMarker（当前挂了 widget 的非活动块）
+  const markSig = new Map();     // 块索引 → 签名（源文本+位置），用于 rebuild 时复用未变的 widget
   let blocks = [];               // 当前块列表 [{start,end,html,skipped,listItem,...}]
   let activeIdx = -1;            // 当前活动块索引（-1 = 光标不在任何块）
   let on = false;                // 是否启用
@@ -24,22 +25,51 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
     return m.indexOf('gfm') >= 0 || /markdown/.test(m);
   }
 
-  /** 从 CM 全文重新切块并渲染（文档变化时调用）。 */
+  /** 块签名：源文本 + 起止行 + 列表项标记。签名不变则 widget 可原样复用，避免跳动。 */
+  function blockSig(b, i) {
+    if (!b) return '';
+    let text = '';
+    for (let ln = b.start; ln < b.end && ln < cm.lineCount(); ln++) text += cm.getLine(ln) + '\n';
+    return i + '|' + b.start + '-' + b.end + '|' + (b.listItem ? 'li' : '') + '|' + text;
+  }
+
+  /** 从 CM 全文重新切块并渲染（文档变化时调用）。
+   *  用 cm.operation 批量提交 + 复用签名未变的 widget，避免整屏闪烁跳动。 */
   function rebuild() {
     if (!on || !mdMode() || !renderer) return;
-    clearAllWidgets();
     const doc = cm.getValue();
+    let next;
     try {
-      blocks = renderer.renderMarkdownBlocks(doc, {
-        softBreaks: !!softBreaks,
-        htmlCache,
-      }) || [];
+      next = renderer.renderMarkdownBlocks(doc, { softBreaks: !!softBreaks, htmlCache }) || [];
     } catch (e) {
       console.error('[wysiwyg] 切块失败，退回纯源码:', e);
-      blocks = [];
+      next = [];
     }
-    activeIdx = -1;
-    refreshActive(true);
+    const nextSig = next.map(blockSig);
+    const nextIdx = blockAtCursorFor(next);
+    cm.operation(() => {
+      // 摘掉：索引越界、签名变了、或新成为活动块的 widget
+      for (const i of Array.from(blockMarks.keys())) {
+        if (i >= next.length || nextSig[i] !== markSig.get(i) || i === nextIdx) unmountWidget(i);
+      }
+      blocks = next;
+      activeIdx = nextIdx;
+      // 挂上：非活动块里尚未挂 widget 的（签名变了的已在上面摘掉）；签名未变的原样保留
+      blocks.forEach((_, i) => {
+        if (i === nextIdx || blockMarks.has(i)) return;
+        mountWidget(i); // 内部会记录 markSig
+      });
+      for (const key of Array.from(markSig.keys())) if (key >= blocks.length) markSig.delete(key);
+    });
+  }
+
+  /** 在给定块列表里找光标所在块（rebuild 时 blocks 还是旧的，需传入新列表）。 */
+  function blockAtCursorFor(list) {
+    const line = cm.getCursor('head').line;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].start <= line && line < list[i].end) return i;
+    }
+    return -1;
   }
 
   /** 光标所在块索引。块范围 [start,end) 是 0-based 行号。 */
@@ -121,7 +151,9 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
           handleMouseEvents: true, // 否则 CM5 给 widget 加 cm-ignore-events，块内点击/勾选全部失效
         }
       );
+      cm.addLineClass(b.start, 'wrap', 'cm-ww-rendered');
       blockMarks.set(i, mark);
+      markSig.set(i, blockSig(blocks[i], i));
     } catch (e) {
       console.warn('[wysiwyg] 挂 widget 失败:', e);
     }
@@ -132,12 +164,14 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
     const mark = blockMarks.get(i);
     if (mark) {
       try { mark.clear(); } catch (_) {}
+      if (blocks[i]) cm.removeLineClass(blocks[i].start, 'wrap', 'cm-ww-rendered');
       blockMarks.delete(i);
     }
   }
 
   function clearAllWidgets() {
     for (const i of Array.from(blockMarks.keys())) unmountWidget(i);
+    markSig.clear();
   }
 
   /** 根据当前光标刷新活动块；force=true 时全量重建 widget。 */

@@ -25,6 +25,8 @@ function makeMockCM(lines) {
   const marks = new Map();
   let seq = 0;
   return {
+    operation: (fn) => fn(),
+    addLineClass() {}, removeLineClass() {},
     getValue: () => lines.join('\n'),
     getLine: (i) => lines[i] || '',
     lineCount: () => lines.length,
@@ -167,6 +169,28 @@ test('渲染为空的块保持源码（不挂 widget）', () => {
   });
   ww.enable();
   assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [2, 3]);
+});
+
+
+test('rebuild 时签名未变的 widget 实例保持复用（不跳动）', () => {
+  const cm = makeMockCM(lines);
+  const ww = createWysiwyg({
+    cm,
+    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
+    setTimer: (fn) => { fn(); return 1; },
+  });
+  ww.enable();
+  const before = new Map();
+  for (const [i, m] of cm._marks) before.set(i, m);
+  // 文档"变化"但块内容实际相同 → 再次 rebuild
+  ww.onDocChanged();
+  const after = ww._debug().mounted.slice().sort((a,b)=>a-b);
+  assert.deepEqual(after, [1, 2, 3]);
+  // 关键：未变块的 mark 实例是同一个（没被 clear 重建）
+  for (const i of [1, 2, 3]) {
+    const cur = Array.from(cm._marks.values()).find((m) => m._from.line === BLOCKS[i].start);
+    assert.equal(cur, before.get(i), '块 ' + i + ' 的 widget 被重建了（会跳动）');
+  }
 });
 
 console.log(`\n${pass} 项通过`);

@@ -2335,6 +2335,18 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .fm-wysiwyg-block .markdown-body { font-family: inherit; }
 .CodeMirror-widget .fm-wysiwyg-block > :first-child { margin-top: 0; }
 .CodeMirror-widget .fm-wysiwyg-block > :last-child { margin-bottom: 0; }
+
+/* 关键：widget 是 block 元素，但 CM5 默认把它塞进行内 span。
+   含渲染 widget 的行由 JS 打上 cm-ww-rendered，把行内 span 行高归零，
+   避免 CM 行高 = 源码行高 + widget 高度（翻倍）。用类名而非 :has()，兼容老 WebView。
+   实测：修复前列表项 widget 28px 却占 56px 行高；修复后 28px/28px 完全贴合。 */
+.cm-ww-rendered > span { line-height: 0 !important; }
+.CodeMirror-widget { display: block; line-height: 1.78; }
+/* widget 内列表：去掉块级 margin，避免每个列表项 widget 上下各撑一截 */
+.CodeMirror-widget .markdown-body { margin: 0; }
+.CodeMirror-widget .markdown-body ul,
+.CodeMirror-widget .markdown-body ol { margin: 0; padding-left: 1.55em; }
+.CodeMirror-widget .markdown-body li { margin: 0; }
 /* 列表逐项块：让相邻项的间距与整列表一致（参考实现等高口径） */
 .fm-wysiwyg-li-middle { margin-bottom: 4px; }
 .fm-wysiwyg-li-last { margin-bottom: 14px; }
