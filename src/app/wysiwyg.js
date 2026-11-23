@@ -61,6 +61,7 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
       });
       for (const key of Array.from(markSig.keys())) if (key >= blocks.length) markSig.delete(key);
     });
+    applyEditClasses(nextIdx);
   }
 
   /** 在给定块列表里找光标所在块（rebuild 时 blocks 还是旧的，需传入新列表）。 */
@@ -182,6 +183,45 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
     markSig.clear();
   }
 
+  /** 从渲染 HTML 首标签推断块类型，用于给编辑态源码行套对应的字号/行高。 */
+  function blockKind(b) {
+    if (!b) return '';
+    const m = (b.html || '').match(/^<(h[1-6]|p|ul|ol|blockquote|pre|table)\b/i);
+    return m ? m[1].toLowerCase() : '';
+  }
+
+  let editLineClasses = []; // 当前活动块加过编辑样式类的行号
+
+  /** 清除上一次活动块的编辑样式类。 */
+  function clearEditClasses() {
+    for (const ln of editLineClasses) {
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-h1');
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-h2');
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-h3');
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-h4');
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-head');
+      cm.removeLineClass(ln, 'wrap', 'cm-ww-edit-body');
+    }
+    editLineClasses = [];
+  }
+
+  /** 给活动块源码行套渲染态尺寸，使编辑/预览切换时高度一致、不挤在一起。 */
+  function applyEditClasses(i) {
+    clearEditClasses();
+    const b = blocks[i];
+    if (!b) return;
+    const kind = blockKind(b);
+    let cls = '';
+    if (/^h[1-3]$/.test(kind)) cls = 'cm-ww-edit-' + kind;
+    else if (/^h[4-6]$/.test(kind)) cls = 'cm-ww-edit-h4';
+    // 正文/列表块不需要特殊字号：源码行已由 CSS 统一为 24px，与渲染 widget 一致
+    if (!cls) return;
+    for (let ln = b.start; ln < b.end; ln++) {
+      cm.addLineClass(ln, 'wrap', cls);
+      editLineClasses.push(ln);
+    }
+  }
+
   /** 根据当前光标刷新活动块；force=true 时全量重建 widget。 */
   function refreshActive(force = false) {
     if (!on || !mdMode()) return;
@@ -197,6 +237,7 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
       if (next >= 0) unmountWidget(next);
     }
     activeIdx = next;
+    applyEditClasses(next);
   }
 
   function enable() {
@@ -209,6 +250,7 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
     if (!on) return;
     on = false;
     if (rebuildTimer) { clearTimeout(rebuildTimer); rebuildTimer = null; }
+    clearEditClasses();
     clearAllWidgets();
     blocks = [];
     activeIdx = -1;

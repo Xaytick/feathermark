@@ -2361,6 +2361,10 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 /* WYSIWYG 模式：源码区的行间距稍宽松，贴近阅读体验 */
 .fm-ww-on .CodeMirror { padding: 18px 0 40vh; }
 .fm-ww-on .CodeMirror-line { padding-left: 18px; }
+/* 关键：CM5 的 .CodeMirror pre.CodeMirror-line { line-height: inherit } 特异性高，
+   普通 CSS 盖不住，导致源码行停在默认 19.5px、而渲染 widget 是 24px——编辑块看起来挤。
+   必须 !important 强制源码行与 widget 同为 24px，两种状态行距才一致。 */
+.fm-ww-on .CodeMirror-line { line-height: 24px !important; }
 .fm-ww-on .CodeMirror-activeline-background { background: transparent; }
 /* 活动块所在行：给一点背景提示正在编辑（不遮挡文字） */
 /* WYSIWYG 下源码区与渲染块统一字体，避免切块时字号跳变 */
@@ -2368,3 +2372,13 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
   font-family: var(--preview-font);
   font-size: var(--preview-size);
 }
+
+/* WYSIWYG 编辑态：活动块源码行套用与渲染态相当的字号/行高，
+   （Typora 式：编辑标题时字号也是大的，只是额外显示 Markdown 标记）
+   特异性需高于上面的 .fm-ww-on .CodeMirror-line 才能覆盖 24px 行高；
+   标题用像素行高，避免大字号配小行高导致文字重叠。 */
+.fm-ww-on .CodeMirror-line.cm-ww-edit-h1 { font-size: 1.78em !important; line-height: 48px !important; }
+.fm-ww-on .CodeMirror-line.cm-ww-edit-h2 { font-size: 1.42em !important; line-height: 38px !important; }
+.fm-ww-on .CodeMirror-line.cm-ww-edit-h3 { font-size: 1.2em  !important; line-height: 30px !important; }
+.fm-ww-on .CodeMirror-line.cm-ww-edit-h4 { font-size: 1.06em !important; line-height: 26px !important; }
+.fm-ww-on .CodeMirror-line.cm-ww-edit-head { font-weight: 650; }
