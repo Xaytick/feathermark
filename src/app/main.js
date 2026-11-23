@@ -151,8 +151,8 @@ function applyLayout() {
   if (editor) {
     editor.setWrap(prefs.lineWrap);
     editor.setLineNumbers(prefs.lineNumbers);
-    // 预览模式下编辑器变成「所见即所得」视图：直接可编辑，隐藏 Markdown 标记
-    editor.setLivePreview(prefs.viewMode === 'preview');
+    // 预览模式：块级 WYSIWYG（非活动块完整渲染，活动块源码编辑）
+    editor.setWysiwyg(prefs.viewMode === 'preview');
   }
   // 分屏切换后 CM 尺寸变了，必须刷新，否则光标定位会漂
   setTimeout(() => editor && editor.refresh(), 30);
@@ -998,6 +998,9 @@ async function boot() {
   editor = createEditor({
     textarea: $('editor'),
     prefs,
+    onTaskToggle: (line, checked) => toggleTask(line, checked),
+    onImageClick: (src) => ui.openLightbox(src),
+    onOpenFile: (path, opts) => openPath(path, opts || {}),
     onChange: (doc) => {
       const tab = activeTab();
       if (!tab) return;

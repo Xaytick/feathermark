@@ -2317,3 +2317,36 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .skills-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .skills-form-actions .spacer { flex: 1; }
 .ai-foot .spacer { flex: 1; }
+
+/* ================================================================= WYSIWYG 块级渲染
+   非活动块被 CM widget 替换成渲染后的 HTML；活动块保持源码可见可编辑。
+   widget 的 DOM 高度撑开 CM 对应行段，因此与源码行天然对齐。 */
+.fm-wysiwyg-block {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  cursor: text;
+  transition: opacity 120ms ease;
+}
+/* 块内部用 markdown-body 的排版规则（表格/公式/代码等），继承主题变量 */
+.fm-wysiwyg-block.markdown-body,
+.fm-wysiwyg-block .markdown-body { font-family: inherit; }
+.CodeMirror-widget .fm-wysiwyg-block > :first-child { margin-top: 0; }
+.CodeMirror-widget .fm-wysiwyg-block > :last-child { margin-bottom: 0; }
+/* 列表逐项块：让相邻项的间距与整列表一致（参考实现等高口径） */
+.fm-wysiwyg-li-middle { margin-bottom: 4px; }
+.fm-wysiwyg-li-last { margin-bottom: 14px; }
+/* 纯隐藏块（链接定义等）：零高度占位，避免露出源码 */
+.wysiwyg-block-hidden { height: 0; overflow: hidden; }
+/* WYSIWYG 模式：源码区的行间距稍宽松，贴近阅读体验 */
+.fm-ww-on .CodeMirror { padding: 18px 0 40vh; }
+.fm-ww-on .CodeMirror-line { padding-left: 18px; }
+.fm-ww-on .CodeMirror-activeline-background { background: transparent; }
+/* 活动块所在行：给一点背景提示正在编辑（不遮挡文字） */
+/* WYSIWYG 下源码区与渲染块统一字体，避免切块时字号跳变 */
+.fm-ww-on .CodeMirror {
+  font-family: var(--preview-font);
+  font-size: var(--preview-size);
+}
