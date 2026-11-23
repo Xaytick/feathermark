@@ -2336,20 +2336,26 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .CodeMirror-widget .fm-wysiwyg-block > :first-child { margin-top: 0; }
 .CodeMirror-widget .fm-wysiwyg-block > :last-child { margin-bottom: 0; }
 
-/* 关键：widget 是 block 元素，但 CM5 默认把它塞进行内 span。
-   含渲染 widget 的行由 JS 打上 cm-ww-rendered，把行内 span 行高归零，
-   避免 CM 行高 = 源码行高 + widget 高度（翻倍）。用类名而非 :has()，兼容老 WebView。
-   实测：修复前列表项 widget 28px 却占 56px 行高；修复后 28px/28px 完全贴合。 */
+/* 关键①：widget 是 block 元素，但 CM5 默认把它塞进行内 span。
+   含渲染 widget 的行由 JS 打上 cm-ww-rendered：行元素本身 + 行内 span 都要 line-height:0，
+   否则行高 = 源码行高 + widget 高度（实测多出整整一个空行 15px）。用类名兼容老 WebView。
+   实测：修复前段落 widget 28px 占 43px 行；修复后 28px/28px 完全贴合。 */
+.cm-ww-rendered { line-height: 0 !important; }
 .cm-ww-rendered > span { line-height: 0 !important; }
-.CodeMirror-widget { display: block; line-height: 1.78; }
-/* widget 内列表：去掉块级 margin，避免每个列表项 widget 上下各撑一截 */
+/* 关键②：预览块行高/间距向源码行靠拢，避免「预览态行距虚胖」。
+   widget 内统一用更紧凑的行高，并清掉段落/列表的块级 margin。 */
+.CodeMirror-widget { display: block; line-height: 1.5; }
+/* widget 根节点自带 markdown-body（line-height:1.78），需用同等特异性覆盖为紧凑行高 */
+.CodeMirror-widget.fm-wysiwyg-block { line-height: 1.5; }
 .CodeMirror-widget .markdown-body { margin: 0; }
+.CodeMirror-widget .markdown-body p { margin: 0; }
+/* 关键③：列表块的换行空行由 JS 清理 DOM 文本节点解决（见 wysiwyg.js mountWidget），
+   这里只清 margin。不要用 font-size:0——会让 li 的项目符号一起消失。 */
 .CodeMirror-widget .markdown-body ul,
 .CodeMirror-widget .markdown-body ol { margin: 0; padding-left: 1.55em; }
 .CodeMirror-widget .markdown-body li { margin: 0; }
-/* 列表逐项块：让相邻项的间距与整列表一致（参考实现等高口径） */
-.fm-wysiwyg-li-middle { margin-bottom: 4px; }
-.fm-wysiwyg-li-last { margin-bottom: 14px; }
+/* 列表逐项 widget 已是独立块，不需要额外底距（否则比源码态多一截，切块时跳动） */
+.fm-wysiwyg-li-middle, .fm-wysiwyg-li-last { margin-bottom: 0; }
 /* 纯隐藏块（链接定义等）：零高度占位，避免露出源码 */
 .wysiwyg-block-hidden { height: 0; overflow: hidden; }
 /* WYSIWYG 模式：源码区的行间距稍宽松，贴近阅读体验 */

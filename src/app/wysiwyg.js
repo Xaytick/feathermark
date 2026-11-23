@@ -96,6 +96,14 @@ export function createWysiwyg({ cm, renderer, resolveImage, onBlockClick, onTask
     node.className = 'markdown-body fm-wysiwyg-block' + (b.listItem ? ' fm-wysiwyg-li-' + b.listItemPos : '');
     node.dataset.ws = String(b.start);
     node.innerHTML = b.html;
+    // unified 渲染的列表是 <ul>\n<li>…</li>\n</ul>，标签间的换行文本节点在 block 上下文里
+    // 会渲染成一个空行，把 li 挤下整整一行（实测列表块 85px vs li 28px）。
+    // 清掉纯空白文本节点，既消除空行又保留 li 的项目符号（font-size:0 方案会让符号消失）。
+    node.querySelectorAll('ul, ol').forEach((list) => {
+      Array.from(list.childNodes).forEach((n) => {
+        if (n.nodeType === 3 && !n.textContent.trim()) n.remove();
+      });
+    });
     // 本地图片路径解析（渲染管线给的是相对路径）
     if (resolveImage) {
       node.querySelectorAll('img[src]').forEach((img) => {
