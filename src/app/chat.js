@@ -40,7 +40,7 @@ const EDITOR_KNOWLEDGE = [
   '- 围栏代码块按语言高亮（highlight.js）',
   '文档约定：',
   '- 图片写作 ![说明](assets/文件名.png)；本地图片存放在当前文档同目录的 assets/ 下',
-  '- 界面有源码 / 分屏 / 预览三种视图，预览模式可直接编辑；导出支持单文件 HTML、长图 PNG、PDF',
+  '- 界面有源码 / 分屏 / 预览三种视图，预览模式是只读完整渲染（要编辑请切回源码）；导出支持单文件 HTML、长图 PNG、PDF',
   '【界面功能与设置路径】（用户问「怎么设置 XX」时据此回答，不要说没有此功能或让用户改配置文件）：',
   '- 设置弹窗左侧导航分四区：外观（主题 · 配色）、编辑器（字体 · 编辑）、AI（模型 · 接口）、关于（版本 · 快捷键）',
   '- 外观 → 主题：6 套内置主题与自定义主题以卡片展示，点选即换整套配色和明暗',
@@ -679,7 +679,7 @@ function numberedLines(lines, startNo) {
       const scopeName = onlySel ? '仅选区' : '当前文档';
       parts.push(`${scopeName}：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行${saved ? '' : '（尚未保存到磁盘：无法插入本地图片，需先保存）'}。`);
       parts.push(onlySel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
-      const viewName = { editor: '源码', split: '分屏', preview: '预览（所见即所得）' }[prefs.viewMode] || '分屏';
+      const viewName = { editor: '源码', split: '分屏', preview: '预览（只读渲染）' }[prefs.viewMode] || '分屏';
       parts.push(`用户当前视图：${viewName}。`);
       parts.push(`带行号的原文${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${numbered}`);
     }

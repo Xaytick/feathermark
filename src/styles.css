@@ -459,9 +459,11 @@ html[data-os='macos'] #titlebar::before {
 }
 #workspace.mode-editor #preview-pane,
 #workspace.mode-editor #splitter-main { display: none; }
-/* 预览模式 = 所见即所得编辑：显示编辑器（带即时渲染），隐藏独立预览区 */
-#workspace.mode-preview #preview-pane,
+/* 预览模式 = Obsidian Reading view：真 HTML 只读渲染占满工作区，隐藏编辑器。
+   要编辑请切回源码视图。与分屏右侧的预览完全同一套渲染管线。 */
+#workspace.mode-preview #editor-pane,
 #workspace.mode-preview #splitter-main { display: none; }
+#workspace.mode-preview #preview-pane { display: flex; width: 100%; border: none; }
 #workspace.dir-v { flex-direction: column; }
 #workspace.dir-v .splitter.horizontal { width: auto; height: 5px; cursor: row-resize; }
 
@@ -472,7 +474,6 @@ html[data-os='macos'] #titlebar::before {
   flex-direction: column;
   position: relative;
 }
-#workspace.mode-preview #editor-pane { width: 100%; }
 #workspace.dir-v #editor-pane { height: var(--split); width: 100%; }
 /* 没有打开任何文档时：隐藏预览与分隔条，空状态占满工作区 */
 #workspace.no-doc #preview-pane,
@@ -2317,37 +2318,3 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .skills-form-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .skills-form-actions .spacer { flex: 1; }
 .ai-foot .spacer { flex: 1; }
-
-/* ================================================================= 混合式 Live Preview
-   正文块用 .cm-lp-* 装饰源码（行高由源码决定，切换零跳动）；
-   复杂块（表格/代码/公式）用 widget 挂真 HTML。两类共用下面样式。
-   .cm-lp-on 类由 wysiwyg.enable() 添加，故上面「即时渲染装饰」的 .cm-lp-* 规则全部生效。 */
-
-/* 编辑区基础间距：与 .cm-lp-on 的既有规则叠加 */
-.cm-lp-on .CodeMirror { padding: 18px 0 40vh; }
-.cm-lp-on .CodeMirror-line { padding-left: 18px; }
-.cm-lp-on .CodeMirror-activeline-background { background: transparent; }
-
-/* 标题行高：字号由 .cm-lp-h1..h6 设定且恒定（光标进出不变），
-   这里给足行高避免大字号互相压住。用行高倍数而非固定 px，跟随字号缩放。 */
-.cm-lp-on .CodeMirror pre.CodeMirror-line { line-height: 1.9; }
-
-/* 复杂块 widget：真 HTML 撑开行段。 */
-.fm-wysiwyg-block {
-  display: block; width: 100%; box-sizing: border-box;
-  padding: 0; margin: 0; cursor: text;
-}
-.fm-wysiwyg-block.markdown-body, .fm-wysiwyg-block .markdown-body { font-family: inherit; }
-.CodeMirror-widget .fm-wysiwyg-block > :first-child { margin-top: 0; }
-.CodeMirror-widget .fm-wysiwyg-block > :last-child { margin-bottom: 0; }
-/* widget 行：CM 默认塞进行内 span，需归零行元素与 span 的行高，否则高度翻倍 */
-.cm-ww-rendered { line-height: 0 !important; }
-.cm-ww-rendered > span { line-height: 0 !important; }
-.CodeMirror-widget { display: block; line-height: 1.5; }
-.CodeMirror-widget.fm-wysiwyg-block { line-height: 1.5; }
-.CodeMirror-widget .markdown-body { margin: 0; }
-.CodeMirror-widget .markdown-body p { margin: 0; }
-.CodeMirror-widget .markdown-body ul,
-.CodeMirror-widget .markdown-body ol { margin: 0; padding-left: 1.55em; }
-.CodeMirror-widget .markdown-body li { margin: 0; }
-.wysiwyg-block-hidden { height: 0; overflow: hidden; }

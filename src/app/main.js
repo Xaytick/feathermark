@@ -151,10 +151,10 @@ function applyLayout() {
   if (editor) {
     editor.setWrap(prefs.lineWrap);
     editor.setLineNumbers(prefs.lineNumbers);
-    // 预览模式：块级 WYSIWYG（非活动块完整渲染，活动块源码编辑）
-    editor.setWysiwyg(prefs.viewMode === 'preview');
   }
-  // 分屏切换后 CM 尺寸变了，必须刷新，否则光标定位会漂
+  // 切到预览/分屏时 preview-pane 刚显示出来，需要渲染当前文档；
+  // 同时分屏切换后 CM 尺寸变了要 refresh，否则光标定位会漂
+  if (prefs.viewMode !== 'editor') scheduleRender();
   setTimeout(() => editor && editor.refresh(), 30);
 }
 
