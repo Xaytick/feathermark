@@ -2394,3 +2394,34 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 }
 /* 编辑块内文本可选中、光标可见 */
 .fm-wysiwyg-block [contenteditable="true"] { cursor: text; caret-color: var(--ed-accent, var(--accent)); }
+
+/* ================================================================= CM6 预览编辑（Obsidian 式 Live Preview）
+   文字始终是 CM6 文档内容，mark decoration 隐藏语法标记并套样式；
+   编辑/光标/选区由 CM6 原生管理，零闪烁零跳变。 */
+.cm-pv-on .cm-editor { font-family: var(--preview-font, var(--font-ui)); font-size: var(--preview-size, 15px); }
+.cm-pv-on .cm-content { padding: 18px 24px 40vh; caret-color: var(--ed-accent, var(--accent)); }
+.cm-pv-mark { display: none; }
+
+.cm-pv-h1, .cm-pv-h2, .cm-pv-h3, .cm-pv-h4, .cm-pv-h5, .cm-pv-h6 {
+  font-weight: 650; letter-spacing: -0.01em; line-height: 1.45;
+}
+.cm-pv-h1 { font-size: 1.58em; color: var(--ed-h1, var(--ed-h, var(--text))); }
+.cm-pv-h2 { font-size: 1.34em; color: var(--ed-h2, var(--ed-h, var(--text))); }
+.cm-pv-h3 { font-size: 1.15em; color: var(--ed-h3, var(--ed-h, var(--text))); }
+.cm-pv-h4 { font-size: 1.06em; color: var(--ed-h4, var(--ed-h, var(--text))); }
+.cm-pv-h5 { font-size: 1em; color: var(--ed-h5, var(--ed-h, var(--text))); }
+.cm-pv-h6 { font-size: 0.96em; color: var(--ed-h6, var(--ed-fg-faint, var(--text-muted))); }
+
+.cm-pv-strong { font-weight: 700; color: var(--ed-strong, inherit); }
+.cm-pv-em { font-style: italic; color: var(--ed-em, inherit); }
+.cm-pv-del { text-decoration: line-through; opacity: 0.7; }
+.cm-pv-code {
+  background: var(--ed-code-bg, var(--code-bg));
+  border: 1px solid var(--ed-code-border, var(--border));
+  border-radius: 4px; padding: 1px 3px;
+  font-family: var(--code-font); color: var(--ed-code-fg, var(--text));
+}
+.cm-pv-link { color: var(--ed-link, var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
+.cm-pv-quote { color: var(--ed-quote, var(--text-muted)); }
+.cm-pv-hr { color: transparent; }
+.cm-pv-block { display: block; width: 100%; }

@@ -1,11 +1,10 @@
-// 编辑器层：CodeMirror 6 封装（阶段 1）。
+// 编辑器层：CodeMirror 6 封装。
 // 对外 API 与旧 CM5 版 editor.js 保持兼容，main.js 只需改 import。
 // CM6 全局来自 window.CM6（build.mjs 打好的 iife）。
-//
-// 阶段 1 目标：源码视图可正常编辑、保存、滚动、光标、查找、格式操作。
-// 阶段 2 会在此之上用 ViewPlugin + widget 实现预览模式真渲染直接编辑。
+// 预览模式用 preview-editor.js 的 decoration 架构（Obsidian 式原生编辑）。
+import { createPreviewEditor } from './preview-editor.js';
 const { State, View, Language, Commands, LangMarkdown, Search, Autocomplete } = window.CM6;
-const { EditorState, StateEffect } = State;
+const { EditorState, StateEffect, Compartment } = State;
 const { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, ViewPlugin } = View;
 const { defaultKeymap, history, historyKeymap, indentWithTab } = Commands;
 const { markdown } = LangMarkdown;
@@ -70,6 +69,10 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
   const host = textarea.parentNode;
   const initial = textarea.value || '';
 
+  const previewCompartment = new Compartment();
+  const previewEditor = createPreviewEditor({ State, View });
+  let wwOn = false;
+
   const extensions = [
     lineNumbers(),
     highlightActiveLine(),
@@ -86,6 +89,7 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
         onCursor({ line: line.number + 1, ch: head - line.from + 1, selected: u.state.selection.main.to - u.state.selection.main.from });
       }
     }),
+    previewCompartment.of([]),
   ];
 
   const view = new EditorView({
@@ -150,6 +154,15 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
     setSpellcheck(on) { view.contentDOM.spellcheck = !!on; },
     setLivePreview() {}, isLivePreview: () => false,
     setResolveImage() {}, redecorate() {},
-    setWysiwyg() {}, isWysiwyg: () => false, // 阶段 2 实现
+    setWysiwyg(on) {
+      if (wwOn === !!on) return;
+      wwOn = !!on;
+      const ext = wwOn
+        ? previewEditor.createExtension({ renderer: window.UnifiedRenderer, hooks: {} })
+        : [];
+      view.dispatch({ effects: previewCompartment.reconfigure(ext) });
+      view.dom.classList.toggle('cm-pv-on', wwOn);
+    },
+    isWysiwyg: () => wwOn,
   };
 }
