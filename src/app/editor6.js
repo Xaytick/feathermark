@@ -11,6 +11,53 @@ const { markdown } = LangMarkdown;
 
 const INDENT_UNIT = '  ';
 
+/** CM6 命令：列表 Enter 续写（基础版：当前行标记续写 / 空项退出 / 有序递增）。 */
+function continueListCM(view) {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  if (sel.head !== line.to) return false; // 仅行尾续写
+  const text = line.text;
+  const m = text.match(/^(\s*)(>[> ]*|[-*+] \[[ xX]\]|[-*+]|(\d+)[.)])(\s+)/);
+  if (!m) return false;
+  const [indent, marker] = [m[1], m[2]];
+  const rest = text.slice(m[0].length);
+  if (!rest.trim()) {
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: '' } });
+    return true;
+  }
+  let next = marker;
+  if (/^\d/.test(marker)) {
+    const num = parseInt(m[3], 10);
+    next = (num + 1) + marker.slice(String(num).length);
+  } else if (/\[[xX]\]/.test(marker)) {
+    next = marker.replace(/\[[xX]\]/, '[ ]');
+  }
+  const insert = '\n' + indent + next + (m[4] || ' ');
+  view.dispatch({
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + insert.length },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/** CM6 命令：Tab/Shift-Tab 缩进行（2 空格）。 */
+function indentCM(view, more) {
+  const sel = view.state.selection.main;
+  const from = view.state.doc.lineAt(sel.from).from;
+  const to = view.state.doc.lineAt(sel.to).to;
+  const text = view.state.sliceDoc(from, to);
+  const changed = more
+    ? text.split('\n').map((l) => '  ' + l).join('\n')
+    : text.split('\n').map((l) => l.replace(/^  |^\t/, '')).join('\n');
+  view.dispatch({
+    changes: { from, to, insert: changed },
+    selection: { anchor: sel.from + (more ? 2 : -(text.startsWith('  ') ? 2 : 1)), head: sel.to + (changed.length - text.length) },
+  });
+  return true;
+}
+
 // ---- CM5 兼容 shim：把 CM6 EditorView 包装成旧代码期待的 cm 对象 ----
 function makeCmShim(view) {
   const doc = () => view.state.doc;
@@ -62,6 +109,15 @@ function makeCmShim(view) {
       const sel = view.state.selection.main;
       view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from + text.length } });
     },
+    execCommand(cmd) {
+      if (cmd === 'cut' || cmd === 'copy') {
+        const sel = view.state.selection.main;
+        const text = view.state.sliceDoc(sel.from, sel.to);
+        if (!text) return;
+        if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+        if (cmd === 'cut') view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } });
+      }
+    },
   };
 }
 
@@ -79,7 +135,12 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
     drawSelection(),
     history(),
     markdown(),
-    keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+    keymap.of([
+      { key: 'Enter', run: continueListCM },
+      { key: 'Tab', run: (v) => indentCM(v, true) },
+      { key: 'Shift-Tab', run: (v) => indentCM(v, false) },
+      ...defaultKeymap, ...historyKeymap, indentWithTab,
+    ]),
     EditorView.lineWrapping,
     EditorView.updateListener.of((u) => {
       if (u.docChanged && onChange) onChange(u.state.doc.toString());
@@ -99,17 +160,107 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
   textarea.style.display = 'none';
   const cm = makeCmShim(view);
 
-  // 阶段 1 占位：find / actions / 富文本在阶段 3 用 CM6 原生实现
+  // ---- 右键：交给宿主中文菜单（CM6 默认无菜单） ----
+  if (onContextMenu) {
+    view.contentDOM.addEventListener('contextmenu', (e) => {
+      const sel = view.state.selection.main;
+      e.preventDefault();
+      onContextMenu({ x: e.clientX, y: e.clientY, hasSelection: !sel.empty, editor: cm, actions });
+    });
+  }
+  // ---- 粘贴图片：交给宿主处理（保存文件并插入路径） ----
+  if (onImage) {
+    view.contentDOM.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type && item.type.indexOf('image') === 0) {
+          const file = item.getAsFile();
+          if (file) { e.preventDefault(); onImage(file); return; }
+        }
+      }
+    });
+    view.contentDOM.addEventListener('drop', (e) => {
+      const files = e.dataTransfer && e.dataTransfer.files;
+      if (files && files.length && files[0].type && files[0].type.indexOf('image') === 0) {
+        e.preventDefault(); onImage(files[0]);
+      }
+    });
+  }
+  // ---- 滚动同步：通知宿主 ----
+  if (onScroll) view.scrollDOM.addEventListener('scroll', onScroll);
+
+  // ---- 查找替换：regex 扫描文档，用 CM6 selection 定位 ----
   const find = {
     marks: [], hits: [], index: -1, query: '',
-    clear() { this.hits = []; this.index = -1; this.query = ''; },
-    search(q) { this.query = q; this.hits = []; this.index = q ? 0 : -1; return this.hits.length; },
-    focusHit(i) { this.index = i; },
-    replaceCurrent() { return false; },
-    replaceAll() { return 0; },
+    clear() { this.hits = []; this.index = -1; this.query = ''; this.marks = []; },
+    search(q) {
+      this.query = q; this.hits = []; this.index = -1;
+      if (!q) return 0;
+      const text = view.state.doc.toString();
+      const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        this.hits.push({ from: m.index, to: m.index + m[0].length });
+        if (m[0].length === 0) re.lastIndex++; // 避免空匹配死循环
+      }
+      this.index = this.hits.length ? 0 : -1;
+      return this.hits.length;
+    },
+    focusHit(i) {
+      if (!this.hits.length) return;
+      this.index = (i + this.hits.length) % this.hits.length;
+      const h = this.hits[this.index];
+      view.dispatch({ selection: { anchor: h.from, head: h.to }, effects: EditorView.scrollIntoView(h.from, { y: 'center' }) });
+      view.focus();
+    },
+    replaceCurrent(replacement) {
+      if (this.index < 0 || !this.hits[this.index]) return false;
+      const h = this.hits[this.index];
+      view.dispatch({ changes: { from: h.from, to: h.to, insert: replacement }, selection: { anchor: h.from + replacement.length } });
+      return true;
+    },
+    replaceAll(replacement) {
+      if (!this.hits.length) return 0;
+      const changes = this.hits.map((h) => ({ from: h.from, to: h.to, insert: replacement }));
+      view.dispatch({ changes });
+      const n = this.hits.length;
+      this.hits = []; this.index = -1;
+      return n;
+    },
+  };
+
+  // ---- 格式操作：给选区套 Markdown 标记 ----
+  const wrapSelection = (before, after, placeholder) => {
+    const sel = view.state.selection.main;
+    const selected = view.state.sliceDoc(sel.from, sel.to) || placeholder;
+    const insert = before + selected + after;
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert },
+      selection: { anchor: sel.from + before.length, head: sel.from + before.length + selected.length },
+    });
+    view.focus();
+  };
+  /** 给当前行首加前缀（标题/列表/引用/任务）。 */
+  const prefixLine = (prefix) => {
+    const sel = view.state.selection.main;
+    const line = view.state.doc.lineAt(sel.head);
+    view.dispatch({
+      changes: { from: line.from, insert: prefix },
+      selection: { anchor: sel.from + prefix.length, head: sel.to + prefix.length },
+    });
+    view.focus();
   };
   const actions = {
-    bold() {}, italic() {}, link() {},
+    bold() { wrapSelection('**', '**', '粗体文字'); },
+    italic() { wrapSelection('*', '*', '斜体文字'); },
+    code() { wrapSelection('`', '`', '代码'); },
+    link() { wrapSelection('[', '](url)', '链接文字'); },
+    h1() { prefixLine('# '); },
+    h2() { prefixLine('## '); },
+    ul() { prefixLine('- '); },
+    task() { prefixLine('- [ ] '); },
+    quote() { prefixLine('> '); },
   };
 
   return {
