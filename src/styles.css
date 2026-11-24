@@ -2173,27 +2173,29 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 /* ================================================================= CM6 行号列（gutter）主题适配
    CM6 的 lineNumbers() 生成 .cm-gutters / .cm-gutterElement / .cm-activeLineGutter，
    默认样式是硬编码灰色，不跟主题。这里让行号列的颜色/背景跟随当前主题。 */
+/* CM6 注入的 .light/.dark .cm-gutters 特异性为 0-2-0 且带默认灰底灰字，
+   会盖过普通选择器，这里用 !important 确保主题色胜出（这是覆盖第三方动态样式的正当做法）。 */
 html body .cm-editor .cm-gutters {
-  background: var(--bg);
-  color: var(--text-faint);
-  border-right: 1px solid var(--border);
+  background: var(--bg) !important;
+  color: var(--text-faint) !important;
+  border-right: 1px solid var(--border) !important;
 }
 html body .cm-editor .cm-gutterElement {
-  color: var(--text-faint);
+  color: var(--text-faint) !important;
   padding: 0 8px 0 12px;
 }
 html body .cm-editor .cm-activeLineGutter {
-  background: transparent;
-  color: var(--accent, var(--text));
+  background: transparent !important;
+  color: var(--accent, var(--text)) !important;
   font-weight: 600;
 }
 /* Theme Studio 启用时用编辑区专属 token 覆盖 */
 html[data-theme-studio] body .cm-editor .cm-gutters {
-  background: var(--ed-bg);
-  color: var(--ed-fg-faint);
-  border-right-color: var(--ed-border, var(--border));
+  background: var(--ed-bg) !important;
+  color: var(--ed-fg-faint) !important;
+  border-right-color: var(--ed-border, var(--border)) !important;
 }
-html[data-theme-studio] body .cm-editor .cm-gutterElement { color: var(--ed-fg-faint); }
+html[data-theme-studio] body .cm-editor .cm-gutterElement { color: var(--ed-fg-faint) !important; }
 html[data-theme-studio] body .cm-editor .cm-activeLineGutter {
-  color: var(--ed-accent, var(--ed-fg));
+  color: var(--ed-accent, var(--ed-fg)) !important;
 }
