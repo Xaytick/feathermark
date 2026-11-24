@@ -244,7 +244,7 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     onCursor({ line: pos.line + 1, ch: pos.ch + 1, selected: sel.length });
   });
   cm.on('scroll', () => { scheduleLive(); onScroll && onScroll(); });
-  cm.on('viewportChange', () => scheduleLive());
+  cm.on('viewportChange', () => { scheduleLive(); if (ww.isOn()) ww.onViewportChanged(); });
   cm.on('paste', (_, e) => handlePaste(e));
   cm.on('drop', (_, e) => handleDrop(e));
 
@@ -688,15 +688,13 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     setWysiwyg(on) {
       if (on) {
         setLivePreview(false);
-        // WYSIWYG 下隐藏行号：①预览态本就不显示行号；②编辑态标题套大字号后，
-        // CM5 的行号 gutter 与超高行会错位。切回源码/分屏时 applyLayout 已按
-        // prefs.lineNumbers 恢复，这里无需处理。
+        // 正文行现在是 markText 装饰（行高由源码决定），行号不会错位；
+        // 但复杂块 widget 仍可能与行号错开，且预览态本就不显示行号 → 关闭之。
         cm.setOption('lineNumbers', false);
         ww.enable();
       } else {
         ww.disable();
       }
-      cm.getWrapperElement().classList.toggle('fm-ww-on', on);
       cm.refresh();
     },
     isWysiwyg: () => ww.isOn(),

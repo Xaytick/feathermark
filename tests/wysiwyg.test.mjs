@@ -1,5 +1,6 @@
-// wysiwyg.js 逻辑单测：用 mock CM 验证块挂载/切换/文档变化的行为。
-// 重点验证：活动块露出源码（不挂 widget）、非活动块挂 widget、切换只影响两个块。
+// wysiwyg.js 混合式 Live Preview 逻辑单测。
+// 契约：正文块（h/p/ul/blockquote）用 markText 装饰、不挂 widget；
+//      复杂块（table/pre/math）用 replacedWith widget；活动复杂块露出源码。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -12,12 +13,13 @@ const built = await esbuild.transform(src, { loader: 'js', format: 'esm', platfo
 const blobUrl = 'data:text/javascript;base64,' + Buffer.from(built.code).toString('base64');
 const { createWysiwyg } = await import(blobUrl);
 
-// 构造 mock 块数据（模拟 renderMarkdownBlocks 输出）
+// 混合块：0标题 1段落 2表格(复杂) 3代码块(复杂) 4列表
 const BLOCKS = [
   { start: 0, end: 1, html: '<h1>标题</h1>' },
   { start: 1, end: 2, html: '<p>段落一</p>' },
-  { start: 2, end: 3, html: '<p>段落二</p>' },
-  { start: 4, end: 6, html: '<table>表格</table>' },
+  { start: 2, end: 4, html: '<table>表格</table>' },
+  { start: 4, end: 6, html: '<pre><code>代码</code></pre>' },
+  { start: 6, end: 7, html: '<ul><li>列表</li></ul>' },
 ];
 
 function makeMockCM(lines) {
@@ -27,170 +29,133 @@ function makeMockCM(lines) {
   return {
     operation: (fn) => fn(),
     addLineClass() {}, removeLineClass() {},
+    getViewport: () => ({ from: 0, to: Math.min(lines.length - 1, 20) }),
     getValue: () => lines.join('\n'),
     getLine: (i) => lines[i] || '',
     lineCount: () => lines.length,
     getCursor: (which) => (which === 'head' ? cursor.head : cursor),
     setCursor(pos) { cursor = { head: pos }; },
     getOption: () => 'gfm',
+    getWrapperElement: () => ({ classList: { add() {}, remove() {} } }),
     markText(from, to, opts) {
       const id = ++seq;
-      const mark = { clear() { marks.delete(id); }, _widget: opts.replacedWith, _opts: opts, _from: from, _to: to };
+      const mark = { clear() { marks.delete(id); }, _widget: opts.replacedWith, _opts: opts, _from: from, _to: to, _class: opts.className };
       marks.set(id, mark);
       return mark;
     },
     _marks: marks,
-    _setLine(line) { cursor = { head: { line, ch: 0 } }; },
+    _setLine(line) { cursor = { head: pos(line) }; },
   };
 }
+function pos(line) { return { line, ch: 0 }; }
 
-// mock document（wysiwyg 里创建 div 节点）
+// mock document（装饰里创建 img widget 才用到；此处无图）
 global.document = {
-  createElement: () => ({
-    className: '', dataset: {}, innerHTML: '',
-    addEventListener() {},
-    querySelectorAll: () => [],
-  }),
+  createElement: () => ({ className: '', dataset: {}, innerHTML: '', style: {},
+    addEventListener() {}, querySelectorAll: () => [], appendChild() {} }),
 };
+
+const lines = ['# 标题', '段落一', '| a |', '| b |', '```', 'code', '- 列表'];
 
 let pass = 0;
 function test(name, fn) {
   try { fn(); pass++; console.log('  ✓ ' + name); }
   catch (e) { console.error('  ✗ ' + name + '\n    ' + e.stack); process.exitCode = 1; }
 }
-
-console.log('\nWYSIWYG 块级渲染逻辑');
-const lines = ['# 标题', '段落一', '段落二', '', '| a |', '| b |'];
-
-test('enable 后：活动块=第0块，其余块挂 widget', () => {
-  const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
+function makeWw(cm, blocks = BLOCKS) {
+  return createWysiwyg({
     cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; }, // 测试用同步定时器
+    renderer: { renderMarkdownBlocks: () => blocks.map((b) => ({ ...b })) },
+    setTimer: (fn) => { fn(); return 1; },
   });
+}
+function mountedWidgetLines(cm) {
+  return Array.from(cm._marks.values()).filter((m) => m._widget).map((m) => m._from.line).sort((a, b) => a - b);
+}
+
+console.log('\n混合式 Live Preview');
+test('正文块不挂 widget，复杂块挂 widget（活动块除外）', () => {
+  const cm = makeMockCM(lines);
+  const ww = makeWw(cm);
   ww.enable();
-  assert.equal(ww.activeBlock().start, 0);
-  const mounted = ww._debug().mounted;
-  // 活动块 0 不挂，其余 1/2/3 挂
-  assert.deepEqual(mounted.slice().sort((a,b)=>a-b), [1, 2, 3]);
+  // 活动块=0(标题，正文)。复杂块2(表格)/3(代码)应挂 widget
+  assert.deepEqual(mountedWidgetLines(cm), [2, 4]);
 });
 
-test('光标移到第2块：只切换块0和块2的 widget', () => {
+test('活动块是复杂块时：露出源码、不挂 widget', () => {
   const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; }, // 测试用同步定时器
-  });
+  const ww = makeWw(cm);
   ww.enable();
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [1, 2, 3]);
-  cm._setLine(2); // 移到"段落二"（块2）
+  cm.setCursor(pos(2)); // 光标进表格块
   ww.onCursorChanged();
-  // 块0挂回 widget，块2摘掉；块1/3 不动
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [0, 1, 3]);
+  // 表格块(2)露出源码；代码块(4)仍挂 widget
+  assert.deepEqual(mountedWidgetLines(cm), [4]);
+  assert.equal(ww.activeBlock().start, 2);
 });
 
-test('光标在块外（空行）：所有块挂 widget', () => {
+test('光标离开复杂块：widget 盖回，其他块不动', () => {
   const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; }, // 测试用同步定时器
-  });
+  const ww = makeWw(cm);
   ww.enable();
-  cm._setLine(3); // 空行
-  ww.onCursorChanged();
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [0, 1, 2, 3]); // 块0 也挂回：光标不在任何块，全部渲染
-  assert.equal(ww.activeBlock(), null);
+  cm.setCursor(pos(2)); ww.onCursorChanged();
+  assert.deepEqual(mountedWidgetLines(cm), [4]);
+  cm.setCursor(pos(0)); ww.onCursorChanged();
+  assert.deepEqual(mountedWidgetLines(cm), [2, 4]);
 });
 
-test('文档变化：重新切块并重建 widget', () => {
+test('正文块切换只重绘装饰，不产生 widget', () => {
   const cm = makeMockCM(lines);
-  let callCount = 0;
+  const ww = makeWw(cm);
+  ww.enable();
+  cm.setCursor(pos(1)); ww.onCursorChanged(); // 段落块
+  assert.deepEqual(mountedWidgetLines(cm), [2, 4]);
+  assert.equal(ww.activeBlock().start, 1);
+});
+
+test('文档变化后 widget 按新块重建', () => {
+  const cm = makeMockCM(lines);
+  let calls = 0;
   const ww = createWysiwyg({
     cm,
-    renderer: { renderMarkdownBlocks: () => { callCount++; return BLOCKS.map((b) => ({ ...b })); } },
+    renderer: { renderMarkdownBlocks: () => { calls++; return BLOCKS.map((b) => ({ ...b })); } },
     setTimer: (fn) => { fn(); return 1; },
   });
   ww.enable();
-  assert.equal(callCount, 1);
+  assert.equal(calls, 1);
   ww.onDocChanged();
-  assert.equal(callCount, 2);
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [1, 2, 3]);
+  assert.equal(calls, 2);
+  assert.deepEqual(mountedWidgetLines(cm), [2, 4]);
 });
 
-test('disable 后清空所有 widget', () => {
+test('disable 清空所有 widget 与装饰', () => {
   const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; }, // 测试用同步定时器
-  });
+  const ww = makeWw(cm);
   ww.enable();
   ww.disable();
-  assert.deepEqual(ww._debug().mounted, []);
+  assert.deepEqual(mountedWidgetLines(cm), []);
   assert.equal(ww.isOn(), false);
 });
 
-test('skipped 块不挂 widget（大文档降级）', () => {
+test('widget 带 handleMouseEvents 且签名未变时复用实例', () => {
   const cm = makeMockCM(lines);
-  const skippedBlocks = BLOCKS.map((b, i) => ({ ...b, skipped: i === 1 }));
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => skippedBlocks },
-    setTimer: (fn) => { fn(); return 1; },
-  });
+  const ww = makeWw(cm);
   ww.enable();
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [2, 3]); // 块1 skipped
-});
-
-
-test('widget 挂 handleMouseEvents，保证块内点击生效', () => {
-  const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; },
-  });
-  ww.enable();
-  const marksWithWidget = Array.from(cm._marks.values()).filter((m) => m._widget);
-  assert.ok(marksWithWidget.length > 0);
-  for (const m of marksWithWidget) assert.equal(m._opts.handleMouseEvents, true);
-});
-
-test('渲染为空的块保持源码（不挂 widget）', () => {
-  const cm = makeMockCM(lines);
-  const blocksWithEmpty = BLOCKS.map((b, i) => i === 1 ? { ...b, html: '' } : { ...b });
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => blocksWithEmpty },
-    setTimer: (fn) => { fn(); return 1; },
-  });
-  ww.enable();
-  assert.deepEqual(ww._debug().mounted.slice().sort((a,b)=>a-b), [2, 3]);
-});
-
-
-test('rebuild 时签名未变的 widget 实例保持复用（不跳动）', () => {
-  const cm = makeMockCM(lines);
-  const ww = createWysiwyg({
-    cm,
-    renderer: { renderMarkdownBlocks: () => BLOCKS.map((b) => ({ ...b })) },
-    setTimer: (fn) => { fn(); return 1; },
-  });
-  ww.enable();
-  const before = new Map();
-  for (const [i, m] of cm._marks) before.set(i, m);
-  // 文档"变化"但块内容实际相同 → 再次 rebuild
+  const widgets = Array.from(cm._marks.values()).filter((m) => m._widget);
+  for (const m of widgets) assert.equal(m._opts.handleMouseEvents, true);
+  const before = new Map(widgets.map((m) => [m._from.line, m]));
   ww.onDocChanged();
-  const after = ww._debug().mounted.slice().sort((a,b)=>a-b);
-  assert.deepEqual(after, [1, 2, 3]);
-  // 关键：未变块的 mark 实例是同一个（没被 clear 重建）
-  for (const i of [1, 2, 3]) {
-    const cur = Array.from(cm._marks.values()).find((m) => m._from.line === BLOCKS[i].start);
-    assert.equal(cur, before.get(i), '块 ' + i + ' 的 widget 被重建了（会跳动）');
+  for (const m of Array.from(cm._marks.values()).filter((m) => m._widget)) {
+    if (before.has(m._from.line)) assert.equal(m, before.get(m._from.line));
   }
+});
+
+test('正文装饰带 cm-lp- 类（标题/标记）', () => {
+  const cm = makeMockCM(lines);
+  const ww = makeWw(cm);
+  ww.enable();
+  const decorated = Array.from(cm._marks.values()).filter((m) => m._class && !m._widget);
+  assert.ok(decorated.length > 0, '应有正文装饰 mark');
+  assert.ok(decorated.some((m) => m._class.startsWith('cm-lp-')));
 });
 
 console.log(`\n${pass} 项通过`);

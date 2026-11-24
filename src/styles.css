@@ -2318,67 +2318,36 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .skills-form-actions .spacer { flex: 1; }
 .ai-foot .spacer { flex: 1; }
 
-/* ================================================================= WYSIWYG 块级渲染
-   非活动块被 CM widget 替换成渲染后的 HTML；活动块保持源码可见可编辑。
-   widget 的 DOM 高度撑开 CM 对应行段，因此与源码行天然对齐。 */
+/* ================================================================= 混合式 Live Preview
+   正文块用 .cm-lp-* 装饰源码（行高由源码决定，切换零跳动）；
+   复杂块（表格/代码/公式）用 widget 挂真 HTML。两类共用下面样式。
+   .cm-lp-on 类由 wysiwyg.enable() 添加，故上面「即时渲染装饰」的 .cm-lp-* 规则全部生效。 */
+
+/* 编辑区基础间距：与 .cm-lp-on 的既有规则叠加 */
+.cm-lp-on .CodeMirror { padding: 18px 0 40vh; }
+.cm-lp-on .CodeMirror-line { padding-left: 18px; }
+.cm-lp-on .CodeMirror-activeline-background { background: transparent; }
+
+/* 标题行高：字号由 .cm-lp-h1..h6 设定且恒定（光标进出不变），
+   这里给足行高避免大字号互相压住。用行高倍数而非固定 px，跟随字号缩放。 */
+.cm-lp-on .CodeMirror pre.CodeMirror-line { line-height: 1.9; }
+
+/* 复杂块 widget：真 HTML 撑开行段。 */
 .fm-wysiwyg-block {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-  cursor: text;
-  transition: opacity 120ms ease;
+  display: block; width: 100%; box-sizing: border-box;
+  padding: 0; margin: 0; cursor: text;
 }
-/* 块内部用 markdown-body 的排版规则（表格/公式/代码等），继承主题变量 */
-.fm-wysiwyg-block.markdown-body,
-.fm-wysiwyg-block .markdown-body { font-family: inherit; }
+.fm-wysiwyg-block.markdown-body, .fm-wysiwyg-block .markdown-body { font-family: inherit; }
 .CodeMirror-widget .fm-wysiwyg-block > :first-child { margin-top: 0; }
 .CodeMirror-widget .fm-wysiwyg-block > :last-child { margin-bottom: 0; }
-
-/* 关键①：widget 是 block 元素，但 CM5 默认把它塞进行内 span。
-   含渲染 widget 的行由 JS 打上 cm-ww-rendered：行元素本身 + 行内 span 都要 line-height:0，
-   否则行高 = 源码行高 + widget 高度（实测多出整整一个空行 15px）。用类名兼容老 WebView。
-   实测：修复前段落 widget 28px 占 43px 行；修复后 28px/28px 完全贴合。 */
+/* widget 行：CM 默认塞进行内 span，需归零行元素与 span 的行高，否则高度翻倍 */
 .cm-ww-rendered { line-height: 0 !important; }
 .cm-ww-rendered > span { line-height: 0 !important; }
-/* 关键②：预览块行高/间距向源码行靠拢，避免「预览态行距虚胖」。
-   widget 内统一用更紧凑的行高，并清掉段落/列表的块级 margin。 */
 .CodeMirror-widget { display: block; line-height: 1.5; }
-/* widget 根节点自带 markdown-body（line-height:1.78），需用同等特异性覆盖为紧凑行高 */
 .CodeMirror-widget.fm-wysiwyg-block { line-height: 1.5; }
 .CodeMirror-widget .markdown-body { margin: 0; }
 .CodeMirror-widget .markdown-body p { margin: 0; }
-/* 关键③：列表块的换行空行由 JS 清理 DOM 文本节点解决（见 wysiwyg.js mountWidget），
-   这里只清 margin。不要用 font-size:0——会让 li 的项目符号一起消失。 */
 .CodeMirror-widget .markdown-body ul,
 .CodeMirror-widget .markdown-body ol { margin: 0; padding-left: 1.55em; }
 .CodeMirror-widget .markdown-body li { margin: 0; }
-/* 列表逐项 widget 已是独立块，不需要额外底距（否则比源码态多一截，切块时跳动） */
-.fm-wysiwyg-li-middle, .fm-wysiwyg-li-last { margin-bottom: 0; }
-/* 纯隐藏块（链接定义等）：零高度占位，避免露出源码 */
 .wysiwyg-block-hidden { height: 0; overflow: hidden; }
-/* WYSIWYG 模式：源码区的行间距稍宽松，贴近阅读体验 */
-.fm-ww-on .CodeMirror { padding: 18px 0 40vh; }
-.fm-ww-on .CodeMirror-line { padding-left: 18px; }
-/* 关键：CM5 的 .CodeMirror pre.CodeMirror-line { line-height: inherit } 特异性高，
-   普通 CSS 盖不住，导致源码行停在默认 19.5px、而渲染 widget 是 24px——编辑块看起来挤。
-   必须 !important 强制源码行与 widget 同为 24px，两种状态行距才一致。 */
-.fm-ww-on .CodeMirror-line { line-height: 24px !important; }
-.fm-ww-on .CodeMirror-activeline-background { background: transparent; }
-/* 活动块所在行：给一点背景提示正在编辑（不遮挡文字） */
-/* WYSIWYG 下源码区与渲染块统一字体，避免切块时字号跳变 */
-.fm-ww-on .CodeMirror {
-  font-family: var(--preview-font);
-  font-size: var(--preview-size);
-}
-
-/* WYSIWYG 编辑态：活动块源码行套用与渲染态相当的字号/行高，
-   （Typora 式：编辑标题时字号也是大的，只是额外显示 Markdown 标记）
-   特异性需高于上面的 .fm-ww-on .CodeMirror-line 才能覆盖 24px 行高；
-   标题用像素行高，避免大字号配小行高导致文字重叠。 */
-.fm-ww-on .CodeMirror-line.cm-ww-edit-h1 { font-size: 1.78em !important; line-height: 48px !important; }
-.fm-ww-on .CodeMirror-line.cm-ww-edit-h2 { font-size: 1.42em !important; line-height: 38px !important; }
-.fm-ww-on .CodeMirror-line.cm-ww-edit-h3 { font-size: 1.2em  !important; line-height: 30px !important; }
-.fm-ww-on .CodeMirror-line.cm-ww-edit-h4 { font-size: 1.06em !important; line-height: 26px !important; }
-.fm-ww-on .CodeMirror-line.cm-ww-edit-head { font-weight: 650; }
