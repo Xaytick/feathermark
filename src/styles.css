@@ -2169,3 +2169,31 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .cm-pv-quote { color: var(--ed-quote, var(--text-muted)); }
 .cm-pv-hr { color: transparent; }
 .cm-pv-block { display: block; width: 100%; }
+
+/* ================================================================= CM6 行号列（gutter）主题适配
+   CM6 的 lineNumbers() 生成 .cm-gutters / .cm-gutterElement / .cm-activeLineGutter，
+   默认样式是硬编码灰色，不跟主题。这里让行号列的颜色/背景跟随当前主题。 */
+html body .cm-editor .cm-gutters {
+  background: var(--bg);
+  color: var(--text-faint);
+  border-right: 1px solid var(--border);
+}
+html body .cm-editor .cm-gutterElement {
+  color: var(--text-faint);
+  padding: 0 8px 0 12px;
+}
+html body .cm-editor .cm-activeLineGutter {
+  background: transparent;
+  color: var(--accent, var(--text));
+  font-weight: 600;
+}
+/* Theme Studio 启用时用编辑区专属 token 覆盖 */
+html[data-theme-studio] body .cm-editor .cm-gutters {
+  background: var(--ed-bg);
+  color: var(--ed-fg-faint);
+  border-right-color: var(--ed-border, var(--border));
+}
+html[data-theme-studio] body .cm-editor .cm-gutterElement { color: var(--ed-fg-faint); }
+html[data-theme-studio] body .cm-editor .cm-activeLineGutter {
+  color: var(--ed-accent, var(--ed-fg));
+}
