@@ -245,6 +245,8 @@ export function createSettings({ body, onApply }) {
         if (!result.colors.length) throw new Error(tr('set.aiBadColors'));
         input.value = result.colors.map((c) => c.hex).join('\n');
         renderPreview(result);
+        // 把用户的风格描述自动填入配色名（nameInput 上限 40 字符，JS 赋值不受 maxLength 约束，需手动截断）
+        nameInput.value = prompt.slice(0, nameInput.maxLength || 40);
         aiMsg.className = 'cs-save-msg ok';
         aiMsg.textContent = tr('set.aiColorsDone', { n: result.colors.length });
         input.scrollIntoView({ block: 'nearest' });
