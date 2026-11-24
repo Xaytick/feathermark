@@ -1,6 +1,7 @@
 // 编辑器层：CodeMirror 5 的封装。
 // 只用 CM5（与参考实现一致）——CM6 的 markdown 支持要靠一堆扩展拼，而这个项目的
 // 交互重心在「编辑 + 即时预览」，CM5 的模式/快捷键/查找光标 API 更直接。
+import { createWysiwyg } from './wysiwyg.js';
 const CM = window.CodeMirror;
 
 const INDENT_UNIT = '  '; // Tab 缩进固定两个空格
@@ -213,11 +214,25 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     },
   });
 
+  // 块级 WYSIWYG（Typora 式）：非活动块渲染成 HTML widget，活动块保持源码。
+  const ww = createWysiwyg({
+    cm,
+    renderer: window.UnifiedRenderer,
+    resolveImage: (src) => (typeof resolveImage === 'function' ? resolveImage(src) : src),
+    postProcess: wysiwygPostProcess,
+    softBreaks: prefs.softBreaks,
+    onTaskToggle,
+    onImageClick,
+    onOpenFile,
+  });
+
   cm.on('change', () => {
     onChange && onChange(cm.getValue());
+    if (ww.isOn()) ww.onDocChanged();
     scheduleLive();
   });
   cm.on('cursorActivity', () => {
+    if (ww.isOn()) ww.onCursorChanged();
     // 光标换行要重新计算「哪一行显示标记」，但同一行内移动可跳过
     if (liveOn) {
       const ln = cm.getCursor('head').line;
@@ -560,6 +575,7 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
       if (cursor) cm.setCursor(cursor);
       cm.setCursor(cursor || { line: 0, ch: 0 });
     });
+    if (ww.isOn()) ww.rebuild();
   }
 
   /* ---------------------------------------------------------------- 查找替换 */
@@ -668,7 +684,79 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     isLivePreview: () => liveOn,
     setResolveImage(fn) { resolveImage = fn; },
     redecorate: () => { if (liveOn) decorate(); },
+    // 块级 WYSIWYG（完整渲染 + 当前块源码编辑）
+    setWysiwyg(on) {
+      if (on) {
+        setLivePreview(false);
+        // WYSIWYG 下隐藏行号：①预览态本就不显示行号；②编辑态标题套大字号后，
+        // CM5 的行号 gutter 与超高行会错位。切回源码/分屏时 applyLayout 已按
+        // prefs.lineNumbers 恢复，这里无需处理。
+        cm.setOption('lineNumbers', false);
+        ww.enable();
+      } else {
+        ww.disable();
+      }
+      cm.getWrapperElement().classList.toggle('fm-ww-on', on);
+      cm.refresh();
+    },
+    isWysiwyg: () => ww.isOn(),
   };
+}
+
+/* ---------------------------------------------------- WYSIWYG 块后处理 */
+let wwMermaidSeq = 0;
+let wwMermaidQueue = Promise.resolve();
+/** 对渲染后的块 HTML 做数学/代码高亮/Mermaid 后处理。fromCache=true 时产物已完成，跳过。 */
+function wysiwygPostProcess(node, fromCache) {
+  if (fromCache) return; // 缓存里已是处理后产物
+  // KaTeX 显示公式占位
+  const katex = window.katex;
+  if (katex) {
+    node.querySelectorAll('span.math-display').forEach((span) => {
+      const latex = (span.textContent || '').trim();
+      if (!latex) return;
+      try { katex.render(latex, span, { displayMode: true, throwOnError: false, strict: 'ignore' }); }
+      catch (_) { span.textContent = latex; }
+    });
+  }
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(node, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false },
+          { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false },
+        ],
+        throwOnError: false, strict: 'ignore',
+        ignoredClasses: ['katex-ignore', 'mermaid-container', 'code-lang'],
+      });
+    } catch (_) {}
+  }
+  // 代码高亮
+  if (window.hljs) {
+    node.querySelectorAll('pre > code').forEach((code) => {
+      if (code.classList.contains('language-mermaid')) return;
+      try { window.hljs.highlightElement(code); } catch (_) {}
+    });
+  }
+  // Mermaid：替换为容器后异步渲染（串行，避免单例状态竞争）
+  const codes = Array.from(node.querySelectorAll('pre > code.language-mermaid'));
+  codes.forEach((code) => {
+    const pre = code.parentElement;
+    const container = document.createElement('div');
+    container.className = 'mermaid-container';
+    container.id = `fm-ww-mermaid-${Date.now()}-${++wwMermaidSeq}`;
+    container.textContent = code.textContent || '';
+    pre.replaceWith(container);
+    const step = () => {
+      const mermaid = window.mermaid;
+      if (!mermaid) return Promise.resolve();
+      try {
+        mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.mode === 'dark' ? 'dark' : 'default' });
+        return mermaid.run({ nodes: [container] });
+      } catch (_) { return Promise.resolve(); }
+    };
+    wwMermaidQueue = wwMermaidQueue.then(step, step).catch(() => {});
+  });
 }
 
 function escapeRe(s) {
