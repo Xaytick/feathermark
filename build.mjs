@@ -40,6 +40,20 @@ async function main() {
   });
   console.log('✓ lib/unified-bundle.js');
 
+  // 1b) CodeMirror 6（纯 ESM → iife，导出 window.CM6）
+  await build({
+    entryPoints: [path.join(src, 'cm6-vendor.js')],
+    outfile: path.join(lib, 'cm6-bundle.js'),
+    bundle: true,
+    format: 'iife',
+    globalName: 'CM6',
+    platform: 'browser',
+    target: ['es2020'],
+    legalComments: 'none',
+    logLevel: 'warning',
+  });
+  console.log('✓ lib/cm6-bundle.js');
+
   // 2) 应用主程序（含 @tauri-apps/api、对话框插件、mermaid、highlight.js、html2canvas、jsPDF）
   await build({
     entryPoints: [path.join(src, 'app/main.js')],
