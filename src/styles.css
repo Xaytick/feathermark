@@ -2386,3 +2386,11 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 .fm-ww-on .CodeMirror-line.cm-ww-edit-h3 { font-size: 1.2em  !important; line-height: 30px !important; }
 .fm-ww-on .CodeMirror-line.cm-ww-edit-h4 { font-size: 1.06em !important; line-height: 26px !important; }
 .fm-ww-on .CodeMirror-line.cm-ww-edit-head { font-weight: 650; }
+
+/* 渲染块直接编辑：编辑中的块给细微提示，去掉 contenteditable 默认轮廓 */
+.fm-wysiwyg-block .fm-wysiwyg-editing { outline: none; }
+.CodeMirror-widget .fm-wysiwyg-block:has(.fm-wysiwyg-editing) {
+  box-shadow: inset 2px 0 0 var(--ed-accent, var(--accent));
+}
+/* 编辑块内文本可选中、光标可见 */
+.fm-wysiwyg-block [contenteditable="true"] { cursor: text; caret-color: var(--ed-accent, var(--accent)); }

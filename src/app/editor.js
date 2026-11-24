@@ -2,6 +2,8 @@
 // 只用 CM5（与参考实现一致）——CM6 的 markdown 支持要靠一堆扩展拼，而这个项目的
 // 交互重心在「编辑 + 即时预览」，CM5 的模式/快捷键/查找光标 API 更直接。
 import { createWysiwyg } from './wysiwyg.js';
+import * as DocToMarkdown from './dom-to-markdown.js';
+window.DocToMarkdown = DocToMarkdown;
 const CM = window.CodeMirror;
 
 const INDENT_UNIT = '  '; // Tab 缩进固定两个空格
