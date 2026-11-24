@@ -30,7 +30,7 @@ const TEXT_ATTACH_RE = /\.(md|markdown|txt|json|ya?ml|js|mjs|cjs|ts|tsx|jsx|css|
 // 只保留「影响回答正确性」的事实（约 400 字），不写营销性描述，避免白白占用上下文预算。
 const EDITOR_KNOWLEDGE = [
   '【编辑器环境】',
-  'FeatherMark 是本地 Markdown 编辑器（Tauri + CodeMirror 5 + remark 渲染管线）。Markdown 源码是唯一真相，预览由源码实时渲染。',
+  'FeatherMark 是本地 Markdown 编辑器（Tauri + CodeMirror 6 + remark 渲染管线）。Markdown 源码是唯一真相，预览由源码实时渲染。',
   '支持的语法：',
   '- 标准 Markdown + GFM：表格、任务列表 - [ ]、删除线 ~~x~~、自动链接、有序/无序列表',
   '- 数学：行内 $...$、块级 $$...$$（KaTeX 渲染）',

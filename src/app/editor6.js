@@ -59,7 +59,7 @@ function indentCM(view, more) {
 }
 
 // ---- CM5 兼容 shim：把 CM6 EditorView 包装成旧代码期待的 cm 对象 ----
-function makeCmShim(view) {
+function makeCmShim(view, optionHandler) {
   const doc = () => view.state.doc;
   const lineAt = (n) => {
     const d = doc();
@@ -103,7 +103,7 @@ function makeCmShim(view) {
       const p = typeof pos === 'object' ? posOf(pos) : pos;
       view.dispatch({ selection: { anchor: p }, effects: EditorView.scrollIntoView(p, { y: 'center' }) });
     },
-    setOption(k, v) { /* 阶段 1：行号/换行等在扩展层处理 */ },
+    setOption(k, v) { if (optionHandler) optionHandler(k, v); },
     // 富文本操作占位（阶段 3 完善）
     replaceSelection(text) {
       const sel = view.state.selection.main;
@@ -126,11 +126,14 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
   const initial = textarea.value || '';
 
   const previewCompartment = new Compartment();
+  const lineNumCompartment = new Compartment();
+  const wrapCompartment = new Compartment();
+  const bracketCompartment = new Compartment();
   const previewEditor = createPreviewEditor({ State, View });
   let wwOn = false;
 
   const extensions = [
-    lineNumbers(),
+    lineNumCompartment.of(prefs.lineNumbers ? lineNumbers() : []),
     highlightActiveLine(),
     drawSelection(),
     history(),
@@ -141,7 +144,8 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
       { key: 'Shift-Tab', run: (v) => indentCM(v, false) },
       ...defaultKeymap, ...historyKeymap, indentWithTab,
     ]),
-    EditorView.lineWrapping,
+    wrapCompartment.of(prefs.lineWrap ? EditorView.lineWrapping : []),
+    bracketCompartment.of(prefs.autoPairs ? Autocomplete.closeBrackets() : []),
     EditorView.updateListener.of((u) => {
       if (u.docChanged && onChange) onChange(u.state.doc.toString());
       if ((u.docChanged || u.selectionSet) && onCursor) {
@@ -158,7 +162,12 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
     parent: host,
   });
   textarea.style.display = 'none';
-  const cm = makeCmShim(view);
+  const optionHandler = (k, v) => {
+    if (k === 'autoCloseBrackets') view.dispatch({ effects: bracketCompartment.reconfigure(v ? Autocomplete.closeBrackets() : []) });
+    else if (k === 'lineWrapping') view.dispatch({ effects: wrapCompartment.reconfigure(v ? EditorView.lineWrapping : []) });
+    else if (k === 'lineNumbers') view.dispatch({ effects: lineNumCompartment.reconfigure(v ? lineNumbers() : []) });
+  };
+  const cm = makeCmShim(view, optionHandler);
 
   // ---- 右键：交给宿主中文菜单（CM6 默认无菜单） ----
   if (onContextMenu) {
@@ -272,8 +281,8 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
     },
     focus: () => view.focus(),
     refresh: () => {},
-    setWrap(on) { /* 阶段 1 默认 wrap */ },
-    setLineNumbers(on) { /* 阶段 1 默认开 */ },
+    setWrap(on) { view.dispatch({ effects: wrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) }); },
+    setLineNumbers(on) { view.dispatch({ effects: lineNumCompartment.reconfigure(on ? lineNumbers() : []) }); },
     setEditorFont(font, size) {
       const dom = view.dom;
       if (font) dom.style.fontFamily = `"${font}", var(--font-mono)`;

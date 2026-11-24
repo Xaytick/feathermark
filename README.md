@@ -3,7 +3,7 @@
 轻量、跨平台、离线可用的 Markdown 编辑器。双击即开，左边写、右边看，公式和图表都内置。
 
 > 实现方式参考开源项目 [TizuMark](https://github.com/tizuio/TizuMark-Markdown-Editor)（GPL-3.0）：
-> 同样的 **Tauri v2 + Rust** 外壳、原生 **CodeMirror 5** 编辑器、**unified/remark** 渲染管线。
+> 同样的 **Tauri v2 + Rust** 外壳、原生 **CodeMirror 6** 编辑器、**unified/remark** 渲染管线。
 > 其中预览渲染器（`src/unified-renderer.js`、`src/md2/`）与文件命令层直接移植自该项目，
 > 因此本项目同样以 **GPL-3.0** 发布，详见 `NOTICE.md`。
 
@@ -28,7 +28,7 @@
 - 界面语言：中文 / English 一键切换（设置 → 编辑 → 界面语言），原生菜单栏与界面文案同步；选择持久化，重启后保持
 
 **编辑**
-- CodeMirror 5（Markdown 语法高亮、列表自动续写、括号自动配对、Tab 缩进）
+- CodeMirror 6（Markdown 语法高亮、列表自动续写、括号自动配对、Tab 缩进；预览模式用原生 decoration 实现所见即所得）
 - `⌘B` 加粗、`⌘I` 斜体、`⌘K` 链接、`⌘/` 注释切换
 - 粘贴或拖入截图自动存进同目录 `assets/`，文件名取内容 MD5，天然去重
 - 文档内查找替换（`⌘F`），命中项全部高亮
@@ -179,7 +179,7 @@ src/
 ├── app/                  应用层
 │   ├── main.js           编排：标签、文件、快捷键、会话
 │   ├── ipc.js            唯一的后端边界（所有 invoke 都在这里）
-│   ├── editor.js         CodeMirror 封装 + 格式化动作 + 查找
+│   ├── editor6.js        CodeMirror 6 封装 + 格式化动作 + 查找
 │   ├── preview.js        渲染 + KaTeX/Mermaid/hljs 后处理 + 滚动换算
 │   ├── tree.js           工作区文件树
 │   ├── tabs.js / search.js / quickopen.js / settings.js
@@ -188,7 +188,7 @@ src/
 │   ├── exporters.js      HTML / PNG / PDF 导出
 │   ├── store.js          偏好与会话持久化
 │   └── ui.js             toast / 菜单 / 分隔条 / 图片查看器
-└── lib/                  构建产物（CodeMirror、KaTeX、两个 esbuild bundle，已 gitignore）
+└── lib/                  构建产物（CM6 bundle、KaTeX、esbuild bundles，已 gitignore）
 src-tauri/
 ├── src/lib.rs            文件读写、目录树、监听、图片入库、字体枚举、全文搜索
 ├── src/ai.rs             AI 配置（本机 0600）+ OpenAI 兼容接口转发（密钥不出 Rust）

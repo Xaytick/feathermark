@@ -69,29 +69,7 @@ async function main() {
   });
   console.log('✓ lib/app-bundle.js');
 
-  // 3) CodeMirror 5 运行时（lib + 用到的 mode/addon）
-  const cm = path.join(nm, 'codemirror');
-  await copy(path.join(cm, 'lib/codemirror.js'), path.join(lib, 'codemirror/codemirror.js'));
-  await copy(path.join(cm, 'lib/codemirror.css'), path.join(lib, 'codemirror/codemirror.css'));
-  for (const m of ['markdown/markdown', 'xml/xml', 'javascript/javascript', 'css/css', 'htmlmixed/htmlmixed', 'yaml/yaml', 'meta']) {
-    await copy(path.join(cm, `mode/${m}.js`), path.join(lib, `codemirror/mode/${path.basename(m)}.js`));
-  }
-  for (const a of [
-    'edit/continuelist',
-    'edit/closebrackets',
-    'selection/active-line',
-    'search/searchcursor',
-    'fold/foldcode',
-    'fold/foldgutter',
-    'fold/markdown-fold',
-    'comment/comment',
-    'display/placeholder',
-  ]) {
-    await copy(path.join(cm, `addon/${a}.js`), path.join(lib, `codemirror/addon/${path.basename(a)}.js`));
-  }
-  console.log('✓ lib/codemirror/');
-
-  // 4) KaTeX（js + 样式 + 字体目录）
+  // 3) KaTeX（js + 样式 + 字体目录）
   const katex = path.join(nm, 'katex/dist');
   await copy(path.join(katex, 'katex.min.js'), path.join(lib, 'katex/katex.min.js'));
   await copy(path.join(katex, 'katex.min.css'), path.join(lib, 'katex/katex.min.css'));
@@ -99,7 +77,7 @@ async function main() {
   await copy(path.join(katex, 'contrib/auto-render.min.js'), path.join(lib, 'katex/auto-render.min.js'));
   console.log('✓ lib/katex/');
 
-  // 5) 代码高亮主题（亮/暗各一份）
+  // 4) 代码高亮主题（亮/暗各一份）
   await copy(path.join(nm, 'highlight.js/styles/github.css'), path.join(lib, 'hljs-github.css'));
   await copy(path.join(nm, 'highlight.js/styles/github-dark.css'), path.join(lib, 'hljs-github-dark.css'));
   console.log('✓ lib/hljs-*.css');
