@@ -11,6 +11,60 @@ const { markdown } = LangMarkdown;
 
 const INDENT_UNIT = '  ';
 
+// ---- 复杂块渲染后处理：公式 / 代码高亮 / Mermaid（与分屏预览一致） ----
+let pvMermaidSeq = 0;
+let pvMermaidQueue = Promise.resolve();
+function previewPostProcess(node) {
+  // KaTeX 显示公式占位
+  const katex = window.katex;
+  if (katex) {
+    node.querySelectorAll('span.math-display').forEach((span) => {
+      const latex = (span.textContent || '').trim();
+      if (!latex) return;
+      try { katex.render(latex, span, { displayMode: true, throwOnError: false, strict: 'ignore' }); }
+      catch (_) { span.textContent = latex; }
+    });
+  }
+  if (window.renderMathInElement) {
+    try {
+      window.renderMathInElement(node, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false },
+          { left: '\\[', right: '\\]', display: true }, { left: '\\(', right: '\\)', display: false },
+        ],
+        throwOnError: false, strict: 'ignore',
+        ignoredClasses: ['katex-ignore', 'mermaid-container', 'code-lang'],
+      });
+    } catch (_) {}
+  }
+  // 代码高亮
+  if (window.hljs) {
+    node.querySelectorAll('pre > code').forEach((code) => {
+      if (code.classList.contains('language-mermaid')) return;
+      try { window.hljs.highlightElement(code); } catch (_) {}
+    });
+  }
+  // Mermaid 异步渲染（串行）
+  const codes = Array.from(node.querySelectorAll('pre > code.language-mermaid'));
+  codes.forEach((code) => {
+    const pre = code.parentElement;
+    const container = document.createElement('div');
+    container.className = 'mermaid-container';
+    container.id = `fm-pv-mermaid-${Date.now()}-${++pvMermaidSeq}`;
+    container.textContent = code.textContent || '';
+    pre.replaceWith(container);
+    const step = () => {
+      const mermaid = window.mermaid;
+      if (!mermaid) return Promise.resolve();
+      try {
+        mermaid.initialize({ startOnLoad: false, theme: document.documentElement.dataset.mode === 'dark' ? 'dark' : 'default' });
+        return mermaid.run({ nodes: [container] });
+      } catch (_) { return Promise.resolve(); }
+    };
+    pvMermaidQueue = pvMermaidQueue.then(step, step).catch(() => {});
+  });
+}
+
 /** CM6 命令：列表 Enter 续写（基础版：当前行标记续写 / 空项退出 / 有序递增）。 */
 function continueListCM(view) {
   const sel = view.state.selection.main;
@@ -318,7 +372,10 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
       if (wwOn === !!on) return;
       wwOn = !!on;
       const ext = wwOn
-        ? previewEditor.createExtension({ renderer: window.UnifiedRenderer, hooks: {} })
+        ? previewEditor.createExtension({
+            renderer: window.UnifiedRenderer,
+            hooks: { postProcess: previewPostProcess, onTaskToggle },
+          })
         : [];
       view.dispatch({ effects: previewCompartment.reconfigure(ext) });
       view.dom.classList.toggle('cm-pv-on', wwOn);

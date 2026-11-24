@@ -2166,9 +2166,31 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
   font-family: var(--code-font); color: var(--ed-code-fg, var(--text));
 }
 .cm-pv-link { color: var(--ed-link, var(--accent)); text-decoration: underline; text-underline-offset: 2px; }
-.cm-pv-quote { color: var(--ed-quote, var(--text-muted)); }
+/* 引用：左边框 + 缩进 + 弱化文字（与分屏预览 markdown-body blockquote 一致） */
+.cm-pv-quote {
+  color: var(--ed-quote, var(--text-muted));
+  border-left: 3px solid var(--ed-border, var(--border));
+  padding-left: 12px;
+  display: inline-block;
+  width: calc(100% - 15px);
+}
 .cm-pv-hr { color: transparent; }
 .cm-pv-block { display: block; width: 100%; }
+
+/* 列表标记 widget：bullet / 序号 / 任务勾选框 */
+.cm-pv-listmark { display: inline-block; min-width: 1.6em; user-select: none; color: var(--text-muted); }
+.cm-pv-listmark.ul-lv0 { color: var(--accent, var(--text-dim)); }
+.cm-pv-listmark.ul-lv1 { color: var(--text-muted); }
+.cm-pv-listmark.ul-lv2 { color: var(--text-faint); }
+.cm-pv-listmark.ol-decimal, .cm-pv-listmark.ol-alpha, .cm-pv-listmark.ol-roman { color: var(--accent, var(--text-dim)); }
+.cm-pv-listmark .cm-pv-task {
+  width: 14px; height: 14px; margin: 0 2px 0 0; vertical-align: -2px;
+  accent-color: var(--accent, #2f6feb); cursor: pointer;
+}
+/* 行内公式：KaTeX 渲染后居中于行 */
+.cm-pv-math { display: inline-block; }
+.cm-pv-math .katex { font-size: 1.05em; }
+.cm-pv-math-display { display: block; width: 100%; text-align: center; padding: 8px 0; }
 
 /* ================================================================= CM6 行号列（gutter）主题适配
    CM6 的 lineNumbers() 生成 .cm-gutters / .cm-gutterElement / .cm-activeLineGutter，
