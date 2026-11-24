@@ -686,7 +686,16 @@ export function createEditor({ textarea, prefs, onChange, onCursor, onScroll, on
     redecorate: () => { if (liveOn) decorate(); },
     // 块级 WYSIWYG（完整渲染 + 当前块源码编辑）
     setWysiwyg(on) {
-      if (on) { setLivePreview(false); ww.enable(); } else { ww.disable(); }
+      if (on) {
+        setLivePreview(false);
+        // WYSIWYG 下隐藏行号：①预览态本就不显示行号；②编辑态标题套大字号后，
+        // CM5 的行号 gutter 与超高行会错位。切回源码/分屏时 applyLayout 已按
+        // prefs.lineNumbers 恢复，这里无需处理。
+        cm.setOption('lineNumbers', false);
+        ww.enable();
+      } else {
+        ww.disable();
+      }
       cm.getWrapperElement().classList.toggle('fm-ww-on', on);
       cm.refresh();
     },
