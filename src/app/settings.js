@@ -2,7 +2,7 @@
 import { prefs, savePrefs, resetPrefs } from './store.js';
 import * as ipc from './ipc.js';
 import { getModels, addModel, removeModel, syncModelsFromConfig, onModelsChange } from './model-list.js';
-import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme } from './color-schemes.js';
+import { parseColors, listSchemes, saveScheme, deleteScheme, getScheme, renameScheme, exportScheme } from './color-schemes.js';
 import { PRESETS, CANVASES, getPreset, tokensFromColors, resolveParams, defaultParams, luminance } from './theme-presets.js';
 import { loadAndCompressImage } from './image-tools.js';
 import { locale, setLocale, t as tr } from './i18n.js';
@@ -448,10 +448,51 @@ export function createSettings({ body, onApply }) {
         render();
       });
       card.appendChild(btn);
-      // 自定义主题带删除角标
+      // 自定义主题带操作角标：重命名 / 导出 / 删除
       if (t.custom) {
+        const tools = document.createElement('div');
+        tools.className = 'ts-preset-tools';
+
+        const ren = document.createElement('button');
+        ren.className = 'ts-preset-tool ts-preset-rename';
+        ren.textContent = '✎';
+        ren.title = tr('set.renameTheme');
+        ren.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const next = window.prompt(tr('set.renameTheme') + '：', t.name);
+          if (next === null) return; // 取消
+          const res = renameScheme(t.id, next);
+          if (!res.ok) { window.alert(res.error); return; }
+          render();
+        });
+        tools.appendChild(ren);
+
+        const exp = document.createElement('button');
+        exp.className = 'ts-preset-tool ts-preset-export';
+        exp.textContent = '⇩';
+        exp.title = tr('set.exportTheme');
+        exp.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const data = exportScheme(t.id);
+          if (!data) { window.alert(tr('set.delTheme')); return; }
+          try {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `feathermark-theme-${data.name.replace(/[\\/:*?"<>|\s]+/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch (err) {
+            window.alert(String(err));
+          }
+        });
+        tools.appendChild(exp);
+
         const del = document.createElement('button');
-        del.className = 'ts-preset-del';
+        del.className = 'ts-preset-tool ts-preset-del';
         del.textContent = '×';
         del.title = tr('set.delTheme');
         del.addEventListener('click', (e) => {
@@ -463,7 +504,8 @@ export function createSettings({ body, onApply }) {
           if (onApply) onApply('theme', theme);
           render();
         });
-        card.appendChild(del);
+        tools.appendChild(del);
+        card.appendChild(tools);
       }
       presetGrid.appendChild(card);
     });

@@ -2126,17 +2126,23 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
 }
 .cs-ai-input:focus { border-color: var(--accent); }
 
-/* 主题卡片：自定义主题带删除角标 */
+/* 主题卡片：自定义主题带操作角标（重命名 / 导出 / 删除） */
 .ts-preset-wrap { position: relative; }
-.ts-preset-del {
+.ts-preset-tools {
   position: absolute; top: 3px; right: 3px;
+  display: none; gap: 2px; z-index: 2;
+}
+.ts-preset-wrap:hover .ts-preset-tools { display: flex; }
+.ts-preset-tool {
   width: 18px; height: 18px; border-radius: 5px;
   background: var(--bg-app); color: var(--text-faint);
-  font-size: 14px; line-height: 1;
-  display: none; place-items: center;
-  z-index: 2;
+  border: 1px solid var(--border);
+  font-size: 13px; line-height: 1; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
 }
-.ts-preset-wrap:hover .ts-preset-del { display: grid; }
+.ts-preset-tool:hover { color: var(--accent, var(--text)); background: var(--bg-panel); }
+.ts-preset-rename:hover { color: var(--accent, var(--text)); }
+.ts-preset-export:hover { color: #2f6feb; }
 .ts-preset-del:hover { color: #e5484d; }
 
 /* ================================================================= CM6 预览编辑（Obsidian 式 Live Preview）

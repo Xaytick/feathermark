@@ -169,3 +169,36 @@ export function saveScheme(name, colors, params) {
 export function deleteScheme(id) {
   writeAll(readAll().filter((s) => s.id !== id));
 }
+
+/**
+ * 重命名配色。返回 { ok, scheme?, error? }。
+ * 规则与 saveScheme 一致：非空、≤40 字符、不与其它配色重名。
+ */
+export function renameScheme(id, newName) {
+  const trimmed = String(newName == null ? '' : newName).trim();
+  if (!trimmed) return { ok: false, error: '请填写配色名称' };
+  if (trimmed.length > 40) return { ok: false, error: '配色名称不能超过 40 个字符' };
+  const all = readAll();
+  const target = all.find((s) => s.id === id);
+  if (!target) return { ok: false, error: '配色不存在，可能已被删除' };
+  if (target.name === trimmed) return { ok: true, scheme: target }; // 没改名，视为成功
+  if (all.some((s) => s.id !== id && s.name === trimmed)) return { ok: false, error: '同名配色已存在，请换一个名称' };
+  target.name = trimmed;
+  if (!writeAll(all)) return { ok: false, error: '重命名失败：本地存储不可用' };
+  return { ok: true, scheme: target };
+}
+
+/** 导出配色为可序列化对象（含版本标记，便于后续导入）。 */
+export function exportScheme(id) {
+  const scheme = getScheme(id);
+  if (!scheme) return null;
+  return {
+    app: 'FeatherMark',
+    type: 'color-scheme',
+    version: 1,
+    name: scheme.name,
+    colors: scheme.colors,
+    params: scheme.params || null,
+    exportedAt: new Date().toISOString(),
+  };
+}
