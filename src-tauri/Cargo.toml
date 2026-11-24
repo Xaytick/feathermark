@@ -1,6 +1,6 @@
 [package]
 name = "feathermark"
-version = "0.1.0"
+version = "0.5.2"
 description = "FeatherMark — a lightweight cross-platform Markdown editor"
 authors = ["FeatherMark"]
 edition = "2021"
