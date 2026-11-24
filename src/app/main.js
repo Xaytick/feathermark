@@ -7,7 +7,7 @@ import * as ipc from './ipc.js';
 import { prefs, savePrefs, session, saveSession, pushRecent } from './store.js';
 import { getScheme } from './color-schemes.js';
 import { themeVars, getPreset, tokensFromColors, resolveParams, luminance, PRESETS } from './theme-presets.js';
-import { createEditor } from './editor.js';
+import { createEditor } from './editor6.js';
 import { createPreview, dirname, resolvePath } from './preview.js';
 import { createTabs } from './tabs.js';
 import { createTree } from './tree.js';
