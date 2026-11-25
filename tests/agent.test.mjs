@@ -20,6 +20,15 @@ new Function('module', 'exports', 'require', built.code)(module_, module_.export
 });
 const { contentSignature, parseEdits, applyEdits, fencesBalanced, cleanOutput } = module_.exports;
 
+// citations.js 纯函数模块：同样用 esbuild transform 加载，避免 ESM 警告
+const citeSrc = fs.readFileSync(path.join(root, 'src/app/citations.js'), 'utf8');
+const citeBuilt = await esbuild.transform(citeSrc, { loader: 'js', format: 'cjs', platform: 'node' });
+const citeModule = { exports: {} };
+new Function('module', 'exports', 'require', citeBuilt.code)(citeModule, citeModule.exports, () => {
+  throw new Error('unexpected require');
+});
+const { extractCitations } = citeModule.exports;
+
 let passed = 0;
 function test(name, fn) {
   try { fn(); passed++; console.log('  ✓ ' + name); }
@@ -90,6 +99,33 @@ test('cleanOutput 去掉整体围栏', () => {
 });
 test('cleanOutput 去掉「改写后如下：」前缀', () => {
   assert.equal(cleanOutput('改写后如下：\n# 标题'), '# 标题');
+});
+
+console.log('\nextractCitations — 联网搜索来源解析');
+test('结构化 url_citation 归一化并按 URL 去重', () => {
+  const cites = extractCitations('', [
+    { url: 'https://a.com/x', title: 'A' },
+    { url: 'https://a.com/x', title: '重复' },
+    { url: 'ftp://bad.com', title: '非 http' },
+  ]);
+  assert.equal(cites.length, 1);
+  assert.equal(cites[0].title, 'A');
+});
+test('正文 markdown 链接与裸链接提取，结构化在前', () => {
+  const cites = extractCitations(
+    '详见 [官方文档](https://docs.example.com/guide)，也可访问 https://extra.org/page。',
+    [{ url: 'https://primary.dev', title: 'Primary' }]
+  );
+  assert.deepEqual(cites.map((c) => c.url), [
+    'https://primary.dev', 'https://docs.example.com/guide', 'https://extra.org/page',
+  ]);
+});
+test('无来源时返回空数组', () => {
+  assert.deepEqual(extractCitations('普通回答，没有链接。', null), []);
+});
+test('超过 12 个来源时截断', () => {
+  const many = Array.from({ length: 20 }, (_, i) => ({ url: `https://x.com/${i}` }));
+  assert.equal(extractCitations('', many).length, 12);
 });
 
 console.log(`\n${passed} 项通过` + (process.exitCode ? '（有失败）' : ''));

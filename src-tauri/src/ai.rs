@@ -260,6 +260,7 @@ fn build_stream_body(
     messages: Vec<ChatMessage>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
+    web_search: bool,
 ) -> Result<serde_json::Value, String> {
     let mut body = serde_json::json!({
         "model": cfg.model,
@@ -270,7 +271,48 @@ fn build_stream_body(
     if !cfg.skip_temperature {
         body["temperature"] = serde_json::json!(temperature.unwrap_or(cfg.temperature));
     }
+    // 联网搜索：不同 OpenAI 兼容服务商字段各异，这里放最常见的一组。
+    // 未知字段通常被忽略，用户仍可用 extra_body 覆盖或补充服务商特定字段。
+    if web_search {
+        body["web_search"] = serde_json::json!(true);
+        body["web_search_options"] = serde_json::json!({});
+    }
     merge_extras(body, cfg)
+}
+
+/// 从 SSE 事件 JSON 里采集 url_citation / citations 标注，归一化成 {url, title}。
+/// 兼容 OpenAI responses 的 `annotations[].type == "url_citation"`、
+/// 以及部分服务商直接给的 `citations` / `search_results` 数组。
+fn collect_citations(j: &serde_json::Value) -> Vec<serde_json::Value> {
+    use serde_json::Value;
+    let mut out: Vec<Value> = Vec::new();
+    let mut nodes: Vec<&Value> = Vec::new();
+    if let Some(a) = j.get("annotations") { nodes.push(a); }
+    if let Some(a) = j["choices"][0].get("message").and_then(|m| m.get("annotations")) { nodes.push(a); }
+    if let Some(a) = j["choices"][0].get("delta").and_then(|d| d.get("annotations")) { nodes.push(a); }
+    if let Some(a) = j.get("citations") { nodes.push(a); }
+    if let Some(a) = j.get("search_results") { nodes.push(a); }
+    for node in nodes {
+        let Some(arr) = node.as_array() else { continue };
+        for item in arr {
+            // url_citation 通常包一层 { type, url_citation: {url, title, ...} }
+            let uc = if item.get("type").and_then(|t| t.as_str()) == Some("url_citation") {
+                item.get("url_citation").unwrap_or(item)
+            } else {
+                item
+            };
+            let url = uc.get("url").and_then(|v| v.as_str())
+                .or_else(|| uc.get("link").and_then(|v| v.as_str()));
+            if let Some(u) = url {
+                if u.trim().is_empty() { continue }
+                let title = uc.get("title").and_then(|v| v.as_str())
+                    .or_else(|| uc.get("name").and_then(|v| v.as_str()))
+                    .unwrap_or(u);
+                out.push(serde_json::json!({ "url": u, "title": title }));
+            }
+        }
+    }
+    out
 }
 
 /// 流式请求的取消标记。每个 request_id 一个 AtomicBool，前端点「停止」时置 true。
@@ -326,6 +368,7 @@ pub async fn ai_chat_stream(
     messages: Vec<ChatMessage>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
+    web_search: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let cfg = load_config(&app)?;
     if cfg.base_url.trim().is_empty() || cfg.model.trim().is_empty() {
@@ -338,8 +381,13 @@ pub async fn ai_chat_stream(
         return Err("还没有填 API Key：请到 设置 → AI 配置".to_string());
     }
 
-    let body = build_stream_body(&cfg, messages, max_tokens, temperature)?;
+    let web_search = web_search.unwrap_or(false);
+    let body = build_stream_body(&cfg, messages, max_tokens, temperature, web_search)?;
     let cancel = stream_cancel_flag(&state, &request_id);
+    // 联网请求先告诉前端进入搜索态（正文尚未开始流出）。
+    if web_search {
+        emit_stream(&app, &request_id, "searching", serde_json::json!({}));
+    }
 
     let mut req = client()?
         .post(endpoint(&cfg, "chat/completions"))
@@ -379,6 +427,15 @@ pub async fn ai_chat_stream(
     let mut model = cfg.model.clone();
     let mut usage = serde_json::Value::Null;
     let mut finish_reason = String::new();
+    let mut citations: Vec<serde_json::Value> = Vec::new();
+    let mut push_citations = |j: &serde_json::Value| {
+        for c in collect_citations(j) {
+            let url = c["url"].as_str().unwrap_or("");
+            if !citations.iter().any(|x| x["url"].as_str() == Some(url)) {
+                citations.push(c);
+            }
+        }
+    };
 
     let mut stream = resp.bytes_stream();
     while let Some(item) = stream.next().await {
@@ -392,6 +449,7 @@ pub async fn ai_chat_stream(
                 "finish_reason": "cancelled",
                 "latency_ms": started.elapsed().as_millis(),
                 "cancelled": true,
+                "citations": citations,
             }));
         }
         let chunk = match item {
@@ -414,6 +472,7 @@ pub async fn ai_chat_stream(
                     continue;
                 }
                 let Ok(j) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                push_citations(&j);
                 if let Some(m) = j["model"].as_str() {
                     if !m.is_empty() {
                         model = m.to_string();
@@ -459,6 +518,7 @@ pub async fn ai_chat_stream(
             "usage": usage,
             "finish_reason": finish_reason,
             "latency_ms": latency_ms,
+            "citations": citations,
         }),
     );
     Ok(serde_json::json!({
@@ -468,6 +528,7 @@ pub async fn ai_chat_stream(
         "finish_reason": finish_reason,
         "latency_ms": latency_ms,
         "cancelled": false,
+        "citations": citations,
     }))
 }
 

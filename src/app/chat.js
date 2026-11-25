@@ -14,6 +14,7 @@ import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
 import { getModels, onModelsChange } from './model-list.js';
 import { parseEdits, applyEdits } from './agent.js';
+import { extractCitations } from './citations.js';
 import { t as tr } from './i18n.js';
 import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toSkillMarkdown, MAX_SKILLS } from './skills.js';
 
@@ -100,6 +101,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const attachmentsEl = $('chat-attachments');
   const contextBtn = $('chat-context-btn');
   const skillChip = $('chat-skill-chip');
+  const webBtn = $('chat-web-btn');
   const sendBtn = $('chat-send');
   const hintEl = $('chat-hint');
   const modelSel = $('chat-model');
@@ -121,6 +123,9 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   const CONTEXT_MODE_KEY = 'feathermark.agent.context-mode.v1';
   let contextMode = load(CONTEXT_MODE_KEY, 'doc');
   if (!['doc', 'selection', 'off'].includes(contextMode)) contextMode = 'doc';
+  // 联网搜索开关（写作/查证事实时让模型联网并标注来源）
+  const WEB_SEARCH_KEY = 'feathermark.agent.web-search.v1';
+  let webSearch = !!load(WEB_SEARCH_KEY, false);
   let busy = false;
   let dropDepth = 0;
   let applyView = null;
@@ -305,6 +310,7 @@ function numberedLines(lines, startNo) {
     const status = document.createElement('span');
     status.className = 'status' + (msg.status === 'error' ? ' error' : '');
     if (msg.status === 'sending') status.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span>';
+    else if (msg.status === 'searching') status.textContent = tr('chat.searching');
     else if (msg.status === 'thinking') status.textContent = tr('chat.thinking');
     else if (msg.status === 'streaming') status.textContent = tr('chat.streaming');
     else if (msg.status === 'stopped') status.textContent = tr('chat.stopped');
@@ -314,7 +320,9 @@ function numberedLines(lines, startNo) {
 
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
-    if (msg.status === 'thinking') {
+    if (msg.status === 'searching') {
+      body.innerHTML = '<span class="chat-loading"><i></i><i></i><i></i></span> ' + tr('chat.searchingEllipsis');
+    } else if (msg.status === 'thinking') {
       body.textContent = tr('chat.thinkingEllipsis');
     } else if (msg.status === 'streaming') {
       body.textContent = (msg.content || '') + ' ▌';
@@ -357,6 +365,37 @@ function numberedLines(lines, startNo) {
         box.appendChild(item);
       }
       body.insertBefore(box, body.firstChild);
+    }
+
+    // 联网来源：消息下方展示可点击链接（仅终态、有 citations 时）
+    if (msg.role === 'assistant' && msg.status !== 'streaming' && msg.status !== 'searching'
+        && msg.citations && msg.citations.length) {
+      const src = document.createElement('div');
+      src.className = 'chat-sources';
+      const label = document.createElement('div');
+      label.className = 'chat-sources-label';
+      label.textContent = tr('chat.sources');
+      src.appendChild(label);
+      const list = document.createElement('div');
+      list.className = 'chat-sources-list';
+      msg.citations.forEach((c, i) => {
+        const a = document.createElement('a');
+        a.className = 'chat-source';
+        a.href = c.url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.title = c.url;
+        const idx = document.createElement('span');
+        idx.className = 'cs-idx';
+        idx.textContent = String(i + 1);
+        const ttl = document.createElement('span');
+        ttl.className = 'cs-title';
+        ttl.textContent = c.title || c.url;
+        a.append(idx, ttl);
+        list.appendChild(a);
+      });
+      src.appendChild(list);
+      body.appendChild(src);
     }
 
     wrap.append(head, body);
@@ -797,6 +836,7 @@ function numberedLines(lines, startNo) {
         '当用户要求修改文档/选区时，只输出编辑指令，不要输出解释或整篇文档：',
         'REPLACE 起-止\n新内容（可多行）\nDELETE 起-止\nINSERT N\n新内容（可多行）\nEND',
         '行号必须取自带行号的原文；只输出改动行，没改的行不要重复。只是问问题时正常回答，不要输出编辑指令。',
+        webSearch ? '\n本次已开启联网搜索：事实性、时效性或需要查证的问题请先联网检索再回答，并在相关句子后给出来源链接。' : '',
         skill ? `\n当前启用的技能：${skill.name}\n${skill.prompt}` : '',
       ]
         .filter(Boolean)
@@ -834,13 +874,18 @@ function numberedLines(lines, startNo) {
 
       const requestId = uid();
       streamRequestId = requestId;
-      assistantMsg.status = 'streaming';
+      assistantMsg.status = webSearch ? 'searching' : 'streaming';
       renderMessages();
       const unlisten = await listen('ai-chat-stream', (event) => {
         const p = event.payload || {};
         if (p.request_id !== requestId) return;
         const payload = p.payload || {};
-        if (p.type === 'thinking') {
+        if (p.type === 'searching') {
+          if (!assistantMsg.content) {
+            assistantMsg.status = 'searching';
+            renderMessages();
+          }
+        } else if (p.type === 'thinking') {
           if (!assistantMsg.content) {
             assistantMsg.status = 'thinking';
             renderMessages();
@@ -856,7 +901,9 @@ function numberedLines(lines, startNo) {
 
       let res;
       try {
-        res = await ipc.aiChatStream(requestId, messages, { maxTokens: 2048, temperature: 0.3 });
+        res = await ipc.aiChatStream(requestId, messages, {
+          maxTokens: 2048, temperature: 0.3, webSearch,
+        });
       } finally {
         unlisten();
         streamRequestId = null;
@@ -869,6 +916,9 @@ function numberedLines(lines, startNo) {
       assistantMsg.model = res.model;
       assistantMsg.latency = res.latency_ms;
       assistantMsg.finishReason = res.finish_reason;
+      // 联网来源：后端结构化的 url_citation + 正文里的链接标注，去重后随会话持久化
+      const cites = extractCitations(assistantMsg.content, res.citations);
+      if (cites.length) assistantMsg.citations = cites;
       userMsg.status = res.cancelled ? 'stopped' : 'sent';
       userMsg.attachments.forEach((a) => (a.status = res.cancelled ? 'ready' : 'sent'));
       s.updatedAt = Date.now();
@@ -1170,6 +1220,20 @@ function numberedLines(lines, startNo) {
     updateSendState();
   }
 
+  function updateWebChip() {
+    webBtn.classList.toggle('on', webSearch);
+    webBtn.textContent = (webSearch ? '🌐 ' : '') + tr('chat.webSearch');
+    webBtn.setAttribute('aria-pressed', String(webSearch));
+    webBtn.title = tr('chat.webSearchHint');
+  }
+
+  function toggleWebSearch() {
+    webSearch = !webSearch;
+    save(WEB_SEARCH_KEY, webSearch);
+    updateWebChip();
+    toast(tr(webSearch ? 'chat.webOn' : 'chat.webOff'));
+  }
+
   function isOpen() {
     return !panel.classList.contains('hidden');
   }
@@ -1259,6 +1323,7 @@ function numberedLines(lines, startNo) {
     e.currentTarget.classList.toggle('collapsed');
   });
   $('chat-skill-chip').addEventListener('click', (e) => showSkills(e.currentTarget));
+  webBtn.addEventListener('click', toggleWebSearch);
   contextBtn.addEventListener('click', (e) => {
     showMenu(e.currentTarget, [
       { label: tr('chat.ctxDoc'), hint: contextMode === 'doc' ? '✓' : '', onClick: () => setContextMode('doc') },
@@ -1356,6 +1421,7 @@ function numberedLines(lines, startNo) {
     renderAttachments();
     updateContextChip();
     updateSkillChip();
+    updateWebChip();
     updateSendState();
     renderModels();
     // 切换界面语言后重绘动态文案（会话/消息/上下文/技能/发送状态）
@@ -1365,6 +1431,7 @@ function numberedLines(lines, startNo) {
       renderAttachments();
       updateContextChip();
       updateSkillChip();
+      updateWebChip();
       updateSendState();
     });
   }
