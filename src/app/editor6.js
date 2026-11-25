@@ -122,14 +122,18 @@ function makeCmShim(view, optionHandler) {
   };
   const posOf = (pos) => {
     const d = doc();
+    // CM5 的 {line} 是 0-based；CM6 的 d.line(n) 是 1-based，必须 +1
     const line = Math.max(0, Math.min(d.lines - 1, pos.line || 0));
-    const l = d.line(line);
+    const l = d.line(line + 1);
     return l.from + Math.min(pos.ch || 0, l.length);
   };
-  const cursorObj = () => {
-    const head = view.state.selection.main.head;
-    const line = doc().lineAt(head);
-    return { line: line.number, ch: head - line.from };
+  const cursorObj = (which) => {
+    const sel = view.state.selection.main;
+    // CM5 的 getCursor('from'/'to') 取选区两端；默认取 head
+    const pos = which === 'from' ? sel.from : which === 'to' ? sel.to : sel.head;
+    const line = doc().lineAt(pos);
+    // 对外返回 CM5 的 0-based 行号，与旧调用方（+1 后显示行号）一致
+    return { line: line.number - 1, ch: pos - line.from };
   };
   return {
     // 直接暴露 view 供高级用法（阶段 2 widget 等）
@@ -140,6 +144,19 @@ function makeCmShim(view, optionHandler) {
     lineCount: () => doc().lines,
     getCursor: (which) => cursorObj(),
     getSelection: () => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to),
+    // CM5 兼容：是否有选区（Agent 面板 buildContextMessage 用）
+    somethingSelected: () => {
+      const sel = view.state.selection.main;
+      return sel.from !== sel.to;
+    },
+    // CM5 兼容：批量操作。CM6 的 dispatch 本身原子，直接执行即可。
+    operation: (fn) => (fn ? fn() : undefined),
+    // CM5 兼容：按 {line,ch} 或 offset 替换区间（Agent 面板应用补丁用）
+    replaceRange(text, from, to) {
+      const a = typeof from === 'object' && from !== null ? posOf(from) : (from ?? view.state.selection.main.from);
+      const b = typeof to === 'object' && to !== null ? posOf(to) : (to ?? a);
+      view.dispatch({ changes: { from: a, to: b, insert: text } });
+    },
     setCursor(pos) {
       const p = posOf(pos);
       view.dispatch({ selection: { anchor: p }, scrollIntoView: true });
