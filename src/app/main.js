@@ -697,9 +697,23 @@ function setupFind() {
 }
 
 /* ================================================================= 菜单 */
+/** 焦点是否在可输入控件里（输入框 / 文本域 / contenteditable）。
+ *  原生菜单快捷键（⌘V/⌘C/⌘A 等）在 WebView 里全局触发，若焦点在输入控件，
+ *  必须让控件自己处理，否则会额外写进编辑器文档。 */
+function focusInTextField() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return true;
+  if (el.isContentEditable) return true;
+  return false;
+}
+
 /** 原生菜单项点击分发：菜单 id → 应用动作（与工具栏/快捷键共用同一批函数）。 */
 function handleMenuAction(id) {
   const cm = editor && editor.cm;
+  // 编辑类动作作用于编辑器；焦点在其它输入控件时跳过，交给控件原生处理
+  const EDIT_ACTIONS = ['edit.undo', 'edit.redo', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.select_all'];
+  if (EDIT_ACTIONS.includes(id) && focusInTextField()) return undefined;
   switch (id) {
     case 'file.new': return newFile();
     case 'file.open': return pickAndOpen();
