@@ -697,12 +697,14 @@ function setupFind() {
 }
 
 /* ================================================================= 菜单 */
-/** 焦点是否在可输入控件里（输入框 / 文本域 / contenteditable）。
- *  原生菜单快捷键（⌘V/⌘C/⌘A 等）在 WebView 里全局触发，若焦点在输入控件，
- *  必须让控件自己处理，否则会额外写进编辑器文档。 */
+/** 焦点是否在「非编辑器」的文本输入控件里（Agent 对话栏 / 设置输入框 / 其它 contenteditable）。
+ *  原生菜单快捷键（⌘V/⌘C/⌘A 等）在 WebView 里全局触发；前端 document keydown 也是全局的。
+ *  若焦点在这些控件里，编辑器快捷键必须让位，否则会误写到文档或误触发应用动作。
+ *  CM6 编辑器自身（.cm-editor / .cm-content）不算——它里面的 ⌘B/I/K 应正常作用于文档。 */
 function focusInTextField() {
   const el = document.activeElement;
   if (!el) return false;
+  if (el.closest && el.closest('.cm-editor')) return false; // 编辑器内，快捷键照常作用于文档
   if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return true;
   if (el.isContentEditable) return true;
   return false;
@@ -884,6 +886,14 @@ function setupShortcuts() {
       return;
     }
     if (quickopen.isOpen()) return;
+
+    // 焦点在 Agent 对话栏 / 设置输入框等文本控件时，编辑器/视图类 ⌘ 快捷键要跳过
+    // （否则在输入框里按 ⌘B 会加粗文档、⌘= 会改字号）；应用级动作（新建/打开/保存/
+    // 设置）保留全局可用。
+    const skipEditorKeys = mod(e) && focusInTextField();
+    // 这些键只作用于编辑器/视图，焦点在文本输入控件时必须让位给控件原生行为
+    const EDITOR_ONLY_KEYS = ['b', 'i', 'k', '=', '+', '-', '\\', 'j', 'l'];
+    if (skipEditorKeys && EDITOR_ONLY_KEYS.includes(e.key.toLowerCase())) return;
 
     if (mod(e) && !e.shiftKey) {
       switch (e.key.toLowerCase()) {
