@@ -710,12 +710,11 @@ function focusInTextField() {
   return false;
 }
 
-/** 原生菜单项点击分发：菜单 id → 应用动作（与工具栏/快捷键共用同一批函数）。 */
+/** 原生菜单项点击分发：菜单 id → 应用动作（与工具栏/快捷键共用同一批函数）。
+ *  菜单不再绑定 accelerator，事件只来自用户主动点击，直接执行即可；
+ *  ⌘ 快捷键统一由 setupShortcuts 的前端 keydown 处理。 */
 function handleMenuAction(id) {
   const cm = editor && editor.cm;
-  // 编辑类动作作用于编辑器；焦点在其它输入控件时跳过，交给控件原生处理
-  const EDIT_ACTIONS = ['edit.undo', 'edit.redo', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.select_all'];
-  if (EDIT_ACTIONS.includes(id) && focusInTextField()) return undefined;
   switch (id) {
     case 'file.new': return newFile();
     case 'file.open': return pickAndOpen();

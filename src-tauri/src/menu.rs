@@ -101,12 +101,12 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, locale: Locale) -> tauri::Resu
 
     // ---- 文件 ----
     let file = sub(app, "file", locale, "&文件", "&File")?;
-    file.append(&item(app, locale, "file.new", "新建", "New", Some("CmdOrCtrl+N"))?)?;
-    file.append(&item(app, locale, "file.open", "打开文件…", "Open File…", Some("CmdOrCtrl+O"))?)?;
+    file.append(&item(app, locale, "file.new", "新建", "New", None)?)?;
+    file.append(&item(app, locale, "file.open", "打开文件…", "Open File…", None)?)?;
     file.append(&item(app, locale, "file.open_folder", "打开文件夹…", "Open Folder…", None)?)?;
     file.append(&sep()?)?;
-    file.append(&item(app, locale, "file.save", "保存", "Save", Some("CmdOrCtrl+S"))?)?;
-    file.append(&item(app, locale, "file.save_as", "另存为…", "Save As…", Some("CmdOrCtrl+Shift+S"))?)?;
+    file.append(&item(app, locale, "file.save", "保存", "Save", None)?)?;
+    file.append(&item(app, locale, "file.save_as", "另存为…", "Save As…", None)?)?;
     file.append(&sep()?)?;
     let export = sub(app, "file.export", locale, "导出", "Export")?;
     export.append(&item(app, locale, "file.export_html", "导出 HTML", "Export HTML", None)?)?;
@@ -114,22 +114,22 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, locale: Locale) -> tauri::Resu
     export.append(&item(app, locale, "file.export_pdf", "导出 PDF", "Export PDF", None)?)?;
     file.append(&export)?;
     file.append(&sep()?)?;
-    file.append(&item(app, locale, "file.close", "关闭标签", "Close Tab", Some("CmdOrCtrl+W"))?)?;
+    file.append(&item(app, locale, "file.close", "关闭标签", "Close Tab", None)?)?;
 
     // ---- 编辑 ----
     let edit = sub(app, "edit", locale, "&编辑", "&Edit")?;
-    edit.append(&item(app, locale, "edit.undo", "撤销", "Undo", Some("CmdOrCtrl+Z"))?)?;
-    edit.append(&item(app, locale, "edit.redo", "重做", "Redo", Some("CmdOrCtrl+Shift+Z"))?)?;
+    edit.append(&item(app, locale, "edit.undo", "撤销", "Undo", None)?)?;
+    edit.append(&item(app, locale, "edit.redo", "重做", "Redo", None)?)?;
     edit.append(&sep()?)?;
-    edit.append(&item(app, locale, "edit.cut", "剪切", "Cut", Some("CmdOrCtrl+X"))?)?;
-    edit.append(&item(app, locale, "edit.copy", "复制", "Copy", Some("CmdOrCtrl+C"))?)?;
-    edit.append(&item(app, locale, "edit.paste", "粘贴", "Paste", Some("CmdOrCtrl+V"))?)?;
-    edit.append(&item(app, locale, "edit.select_all", "全选", "Select All", Some("CmdOrCtrl+A"))?)?;
+    edit.append(&item(app, locale, "edit.cut", "剪切", "Cut", None)?)?;
+    edit.append(&item(app, locale, "edit.copy", "复制", "Copy", None)?)?;
+    edit.append(&item(app, locale, "edit.paste", "粘贴", "Paste", None)?)?;
+    edit.append(&item(app, locale, "edit.select_all", "全选", "Select All", None)?)?;
     edit.append(&sep()?)?;
-    edit.append(&item(app, locale, "edit.find", "查找", "Find", Some("CmdOrCtrl+F"))?)?;
-    edit.append(&item(app, locale, "edit.find_in_files", "在工作区搜索", "Search in Workspace", Some("CmdOrCtrl+Shift+F"))?)?;
+    edit.append(&item(app, locale, "edit.find", "查找", "Find", None)?)?;
+    edit.append(&item(app, locale, "edit.find_in_files", "在工作区搜索", "Search in Workspace", None)?)?;
     edit.append(&sep()?)?;
-    edit.append(&item(app, locale, "edit.settings", "设置…", "Settings…", Some("CmdOrCtrl+,"))?)?;
+    edit.append(&item(app, locale, "edit.settings", "设置…", "Settings…", None)?)?;
 
     // ---- 视图 ----
     let view = sub(app, "view", locale, "&视图", "&View")?;
