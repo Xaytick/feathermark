@@ -1693,6 +1693,8 @@ html[data-mode='dark'] {
 .chat-msg-head .who { font-weight: 600; color: var(--text-dim); }
 .chat-msg-head .status { margin-left: auto; }
 .chat-msg-head .status.error { color: #e5484d; }
+.chat-search-tag { margin-left: 6px; font-size: 9.5px; color: var(--accent); opacity: 0.85; }
+.chat-search-tag.failed { color: #e5484d; }
 .chat-msg-body {
   padding: 8px 10px;
   border-radius: var(--radius);
@@ -1708,6 +1710,9 @@ html[data-mode='dark'] {
 .chat-msg.error .chat-msg-body { border-color: rgba(229, 72, 77, 0.4); color: #e5484d; }
 .chat-msg-body p { margin: 0 0 0.5em; }
 .chat-msg-body p:last-child { margin-bottom: 0; }
+.stream-cursor { color: var(--accent); animation: stream-blink 1s steps(2, start) infinite; }
+@keyframes stream-blink { to { visibility: hidden; } }
+.chat-msg-body .mermaid-container { overflow-x: auto; max-width: 100%; }
 /* 联网搜索来源：消息正文下方的可点击链接列表 */
 .chat-sources { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 .chat-sources-label { font-size: 10.5px; font-weight: 600; color: var(--text-faint); margin-bottom: 5px; }

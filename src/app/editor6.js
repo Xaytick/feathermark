@@ -398,5 +398,7 @@ export function createEditor({ textarea, prefs, onTaskToggle, onImageClick, onOp
       view.dom.classList.toggle('cm-pv-on', wwOn);
     },
     isWysiwyg: () => wwOn,
+    // 供 Agent 回复复用同一套富渲染后处理（KaTeX / hljs / Mermaid），避免两处实现漂移
+    postProcess: previewPostProcess,
   };
 }

@@ -124,3 +124,20 @@ export function upsertSkill(data, id) {
 export function deleteSkill(id) {
   save(listSkills().filter((s) => s.id !== id));
 }
+
+/** 提取 prompt 里的 {{变量}} 占位符（去重、保序）。 */
+export function skillVariables(prompt) {
+  const out = [];
+  const re = /\{\{\s*([\w\u4e00-\u9fa5-]+)\s*\}\}/g;
+  let m;
+  while ((m = re.exec(String(prompt || '')))) {
+    if (!out.includes(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+/** 用 values 替换 prompt 里的 {{变量}}；未提供的保留原样。 */
+export function fillSkillVariables(prompt, values = {}) {
+  return String(prompt || '').replace(/\{\{\s*([\w\u4e00-\u9fa5-]+)\s*\}\}/g,
+    (whole, key) => (values[key] != null && String(values[key]).trim() ? String(values[key]) : whole));
+}

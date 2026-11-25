@@ -13,10 +13,11 @@ import { EDIT_TEMPLATES } from './edit-templates.js';
 import { createAgentEdit } from './agent-edit.js';
 import { buildDiffView } from './diff-view.js';
 import { getModels, onModelsChange } from './model-list.js';
-import { parseEdits, applyEdits } from './agent.js';
-import { extractCitations } from './citations.js';
+import { parseEdits, applyEdits, fencesBalanced, contentSignature } from './agent.js';
+import { extractCitations, linkCitationMarks } from './citations.js';
+import { estimateTokens, outputBudget, selectHistory } from './token-budget.js';
 import { t as tr } from './i18n.js';
-import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toSkillMarkdown, MAX_SKILLS } from './skills.js';
+import { listSkills, getSkill, upsertSkill, deleteSkill, parseSkillMarkdown, toSkillMarkdown, skillVariables, fillSkillVariables, MAX_SKILLS } from './skills.js';
 
 const SESSION_KEY = 'feathermark.agent.sessions.v1';
 const MAX_TEXT_ATTACH = 4000;
@@ -126,6 +127,28 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   // 联网搜索开关（写作/查证事实时让模型联网并标注来源）
   const WEB_SEARCH_KEY = 'feathermark.agent.web-search.v1';
   let webSearch = !!load(WEB_SEARCH_KEY, false);
+  // 输入历史（按工作区隔离，↑/↓ 召回）
+  const INPUT_HISTORY_KEY = 'feathermark.agent.input-history.v1';
+  let inputHistory = load(INPUT_HISTORY_KEY, []) || [];
+  let historyCursor = -1;
+  function pushInputHistory(text) {
+    const t = String(text || '').trim();
+    if (!t || inputHistory[inputHistory.length - 1] === t) return;
+    inputHistory.push(t);
+    if (inputHistory.length > 60) inputHistory = inputHistory.slice(-60);
+    save(INPUT_HISTORY_KEY, inputHistory);
+  }
+  function historyPrev() {
+    if (!inputHistory.length) return null;
+    if (historyCursor < 0) historyCursor = inputHistory.length;
+    if (historyCursor > 0) historyCursor--;
+    return inputHistory[historyCursor] ?? null;
+  }
+  function historyNext() {
+    if (historyCursor < 0 || historyCursor >= inputHistory.length - 1) { historyCursor = -1; return null; }
+    historyCursor++;
+    return inputHistory[historyCursor] ?? null;
+  }
   let busy = false;
   let dropDepth = 0;
   let applyView = null;
@@ -136,9 +159,16 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
   let lastLimitToast = 0;
   let activeModel = '';
 
-  // 持续启用的技能（chip 切换）与单次引用（斜杠命令）分开持有
-  let pinnedSkillId = null;
+  // 持续启用的技能（chip 切换，可多个，持久化）与单次引用（斜杠命令）分开持有
+  const PINNED_SKILLS_KEY = 'feathermark.agent.pinned-skills.v1';
+  let pinnedSkillIds = load(PINNED_SKILLS_KEY, []) || [];
+  if (!Array.isArray(pinnedSkillIds)) pinnedSkillIds = [];
+  let pinnedSkillId = pinnedSkillIds[0] || null; // 兼容旧逻辑：首个固定的技能
   let onceSkillId = null;
+  function savePinnedSkills() {
+    pinnedSkillId = pinnedSkillIds[0] || null;
+    save(PINNED_SKILLS_KEY, pinnedSkillIds);
+  }
   const workspace = () => getWorkspace() || '__global__';
   const sessions = () => allSessions.filter((s) => s.workspace === workspace());
   const active = () => allSessions.find((s) => s.id === activeId) || null;
@@ -224,11 +254,18 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
     renderMessages();
   }
 
+  let sessionFilter = '';
   function renderSessions() {
     sessionsEl.innerHTML = '';
-    const list = sessions().sort((a, b) => b.updatedAt - a.updatedAt);
+    let list = sessions().slice();
+    if (sessionFilter) {
+      const q = sessionFilter.toLowerCase();
+      list = list.filter((s) => String(s.title || '').toLowerCase().includes(q) ||
+        (s.messages || []).some((m) => String(m.content || '').toLowerCase().includes(q)));
+    }
+    list.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.updatedAt - a.updatedAt);
     if (!list.length) {
-      sessionsEl.innerHTML = '<div class="tree-empty">' + tr('chat.noSessions') + '</div>';
+      sessionsEl.innerHTML = '<div class="tree-empty">' + (sessionFilter ? tr('chat.noSessionMatch') : tr('chat.noSessions')) + '</div>';
       return;
     }
     for (const s of list) {
@@ -237,7 +274,7 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
       row.title = s.title;
       const title = document.createElement('span');
       title.className = 'cs-title';
-      title.textContent = s.title;
+      title.textContent = (s.pinned ? '📌 ' : '') + s.title;
       const time = document.createElement('span');
       time.className = 'cs-time';
       time.textContent = shortTime(s.updatedAt);
@@ -261,6 +298,20 @@ export function createChat({ editor, getContext, getWorkspace, openSettings, onL
         activeId = s.id;
         renderSessions();
         renderMessages();
+      });
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showMenu(row, [
+          { label: s.pinned ? tr('chat.unpin') : tr('chat.pin'), onClick: () => {
+            s.pinned = !s.pinned;
+            persist();
+            renderSessions();
+          } },
+          { label: tr('chat.renameSession'), onClick: async () => {
+            const name = await promptDialog({ title: tr('chat.renameSession'), value: s.title });
+            if (name) { s.title = name; persist(); renderSessions(); }
+          } },
+        ]);
       });
       row.append(title, time, del);
       sessionsEl.appendChild(row);
@@ -317,6 +368,18 @@ function numberedLines(lines, startNo) {
     else if (msg.status === 'error') status.textContent = tr('chat.failed');
     else if (msg.role === 'user' && msg.status === 'sent') status.textContent = tr('chat.sent');
     head.append(who, time, status);
+    if (msg.role === 'assistant' && msg.searchState === 'failed') {
+      const tag = document.createElement('span');
+      tag.className = 'chat-search-tag failed';
+      tag.textContent = tr('chat.searchFailedTag');
+      tag.title = msg.searchError || '';
+      head.appendChild(tag);
+    } else if (msg.role === 'assistant' && msg.searchState === 'ok' && msg.citations && msg.citations.length) {
+      const tag = document.createElement('span');
+      tag.className = 'chat-search-tag';
+      tag.textContent = tr('chat.searchedTag', { n: msg.citations.length });
+      head.appendChild(tag);
+    }
 
     const body = document.createElement('div');
     body.className = 'chat-msg-body';
@@ -325,12 +388,30 @@ function numberedLines(lines, startNo) {
     } else if (msg.status === 'thinking') {
       body.textContent = tr('chat.thinkingEllipsis');
     } else if (msg.status === 'streaming') {
-      body.textContent = (msg.content || '') + ' ▌';
+      // 流式也走 markdown（同步部分），让代码块/列表在生成过程中可读；
+      // 异步的公式/Mermaid 留到终态再渲染，避免每个 chunk 重跑。
+      if (msg.role === 'assistant' && window.UnifiedRenderer) {
+        try {
+          body.classList.add('markdown-body');
+          body.innerHTML = window.UnifiedRenderer.renderMarkdown(msg.content || '', { softBreaks: false });
+          const cursor = document.createElement('span');
+          cursor.className = 'stream-cursor';
+          cursor.textContent = '▌';
+          body.appendChild(cursor);
+        } catch (_) {
+          body.textContent = (msg.content || '') + ' ▌';
+        }
+      } else {
+        body.textContent = (msg.content || '') + ' ▌';
+      }
     } else if (msg.content) {
       if (msg.role === 'assistant' && window.UnifiedRenderer) {
         try {
           body.classList.add('markdown-body');
           body.innerHTML = window.UnifiedRenderer.renderMarkdown(msg.content, { softBreaks: false });
+          if (msg.role === 'assistant' && editor && editor.postProcess) {
+            try { editor.postProcess(body); } catch (_) {}
+          }
         } catch (_) {
           body.textContent = msg.content;
         }
@@ -400,6 +481,31 @@ function numberedLines(lines, startNo) {
 
     wrap.append(head, body);
 
+    if (msg.role === 'user' && !busy && msg.status !== 'error') {
+      const actions = document.createElement('div');
+      actions.className = 'chat-msg-actions';
+      const edit = document.createElement('button');
+      edit.textContent = tr('chat.editMessage');
+      edit.title = tr('chat.editMessageHint');
+      edit.addEventListener('click', () => {
+        const s = active();
+        if (!s) return;
+        const idx = s.messages.indexOf(msg);
+        const atts = (msg.attachments || []).map((a) => ({ ...a, status: 'ready' }));
+        // 把这条及之后的消息移除，内容回填输入框供用户修改后重发
+        s.messages = s.messages.slice(0, idx);
+        inputEl.value = msg.content;
+        attachments = atts;
+        renderAttachments();
+        persist();
+        renderMessages();
+        inputEl.focus();
+        updateSendState();
+      });
+      actions.appendChild(edit);
+      wrap.appendChild(actions);
+    }
+
     if (msg.role === 'assistant' && !busy) {
       const actions = document.createElement('div');
       actions.className = 'chat-msg-actions';
@@ -421,6 +527,23 @@ function numberedLines(lines, startNo) {
         }
       });
       actions.appendChild(copy);
+      const regen = document.createElement('button');
+      regen.textContent = tr('chat.regenerate');
+      regen.title = tr('chat.regenerateHint');
+      regen.addEventListener('click', () => {
+        const s = active();
+        if (!s || busy) return;
+        const idx = s.messages.indexOf(msg);
+        const prev = idx > 0 ? s.messages[idx - 1] : null;
+        if (!prev || prev.role !== 'user') return;
+        // 保留附件，删掉当前 assistant 让用户消息回到待发送态
+        const atts = (prev.attachments || []).map((a) => ({ ...a, status: 'ready' }));
+        s.messages = s.messages.filter((m) => m !== msg && m !== prev);
+        persist();
+        renderMessages();
+        send(prev.content, atts);
+      });
+      actions.appendChild(regen);
       wrap.appendChild(actions);
     }
 
@@ -474,7 +597,7 @@ function numberedLines(lines, startNo) {
     const detail = document.createElement('div');
     detail.textContent = warnings.join('；') + '。';
     applyWarningEl.append(title, detail);
-    if (warnings.some((w) => /截断|不完整|长度上限/.test(w))) {
+    if (warnings.some((w) => /截断|不完整|长度上限|围栏不成对|改动了正文文字/.test(w))) {
       const confirm = document.createElement('label');
       confirm.className = 'apply-confirm';
       const box = document.createElement('input');
@@ -510,9 +633,16 @@ function numberedLines(lines, startNo) {
     };
     applyScopeEl.textContent = tr('chat.applyScope', { n: docLines.length });
 
+    const newText = applied.lines.join('\n');
     const warnings = [];
     if (applyMsg.finishReason === 'length') warnings.push('模型输出达到长度上限，补丁可能不完整');
     if (applyErrors.length) warnings.push(`补丁有 ${applyErrors.length} 处指令无效：${applyErrors[0]}`);
+    if (!fencesBalanced(newText)) warnings.push('补丁应用后代码围栏不成对，预览可能显示异常');
+    // 若用户意图是「排版/整理格式」，复用 agent.js 的内容不变式，防止模型偷偷改文字
+    if (/(排版|整理格式|统一格式|规范标题)/.test(String(msg.content || '')) &&
+        contentSignature(docText) !== contentSignature(newText)) {
+      warnings.push('这次是排版整理，但补丁改动了正文文字，请仔细核对');
+    }
     showApplyWarnings(warnings);
 
     applyView = buildDiffView(docText, applied.lines.join('\n'));
@@ -627,8 +757,7 @@ function numberedLines(lines, startNo) {
         modeBtn.addEventListener('click', async () => {
           if (a.mode === 'path') {
             try {
-              const b64 = await ipc.fetchImageAsBase64(a.path);
-              a.dataUrl = `data:image/${imageMime(a.path)};base64,${b64}`;
+              a.dataUrl = await imageToCompressedDataUrl(a.path);
               a.mode = 'dataurl';
             } catch (e) {
               toast(tr('chat.readImageFail') + ipc.describeError(e), { error: true });
@@ -654,6 +783,32 @@ function numberedLines(lines, startNo) {
     }
   }
 
+  /** 把本地图片读成压缩后的 data URL（长边≤1200，JPEG 0.82），避免大图撑爆 token/请求体。 */
+  async function imageToCompressedDataUrl(path) {
+    const b64 = await ipc.fetchImageAsBase64(path);
+    const raw = `data:image/${imageMime(path)};base64,${b64}`;
+    // SVG 无法用 canvas 栅格化时直接回退原值
+    if (/svg/i.test(path)) return raw;
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => {
+        img.onload = resolve; img.onerror = reject; img.src = raw;
+      });
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.width || 1, img.height || 1));
+      if (scale >= 1 && raw.length < 700_000) return raw;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch (_) {
+      return raw; // 压缩失败仍发送原图
+    }
+  }
+
   async function addPaths(paths) {
     const list = Array.isArray(paths) ? paths : [paths];
     for (const path of list) {
@@ -673,13 +828,17 @@ function numberedLines(lines, startNo) {
         text: '',
       };
       attachments.push(a);
+      if (isImage) {
+        toast(tr('chat.imgPathHint'), { duration: 3000 });
+      }
       if (!isImage) {
         if (!TEXT_ATTACH_RE.test(path)) {
           a.text = tr('chat.binaryAttach');
         } else {
           try {
-            const content = await ipc.readFile(path);
-            a.text = String(content || '').slice(0, MAX_TEXT_ATTACH);
+            const content = String(await ipc.readFile(path) || '');
+            a.text = content.slice(0, MAX_TEXT_ATTACH);
+            a.truncated = content.length > MAX_TEXT_ATTACH;
           } catch (e) {
             a.status = 'error';
             a.text = tr('chat.attachReadFail', { e: ipc.describeError(e) });
@@ -708,19 +867,28 @@ function numberedLines(lines, startNo) {
       const fromLine = onlySel ? Math.min(a.line, b.line) + 1 : 1;
       const toLine = onlySel ? Math.max(a.line, b.line) + 1 : docLines.length;
       const rangeLines = docLines.slice(fromLine - 1, toLine);
-      let numbered = numberedLines(rangeLines, fromLine);
-      let clipped = false;
-      if (numbered.length > MAX_CONTEXT) {
-        numbered = numbered.slice(0, MAX_CONTEXT);
-        clipped = true;
+      // 按「整行」累积到预算，避免把某一行从中间切断；记录实际可见的最后一行行号
+      const kept = [];
+      let used = 0;
+      for (let i = 0; i < rangeLines.length; i++) {
+        const lineWithNo = `${fromLine + i}|${rangeLines[i]}\n`;
+        if (used + lineWithNo.length > MAX_CONTEXT && kept.length) break;
+        kept.push(lineWithNo);
+        used += lineWithNo.length;
       }
+      const clipped = kept.length < rangeLines.length;
+      const visibleTo = fromLine + kept.length - 1;
+      const numbered = kept.join('').replace(/\n$/, '');
       const saved = !!ctx.path;
       const scopeName = onlySel ? '仅选区' : '当前文档';
       parts.push(`${scopeName}：${ctx.path || ctx.name || '未命名'}，共 ${docLines.length} 行${saved ? '' : '（尚未保存到磁盘：无法插入本地图片，需先保存）'}。`);
       parts.push(onlySel ? `可修改范围：第 ${fromLine}–${toLine} 行（其余只读）。` : '可修改范围：全文。');
+      if (clipped) {
+        parts.push(`注意：原文过长，下面只发送了第 ${fromLine}–${visibleTo} 行；第 ${visibleTo + 1} 行之后的内容你看不到，不要对它们编造行号或内容。`);
+      }
       const viewName = { editor: '源码', split: '分屏', preview: '预览（所见即所得）' }[prefs.viewMode] || '分屏';
       parts.push(`用户当前视图：${viewName}。`);
-      parts.push(`带行号的原文${clipped ? `（截断至 ${MAX_CONTEXT} 字）` : ''}：\n${numbered}`);
+      parts.push(`带行号的原文${clipped ? `（仅第 ${fromLine}–${visibleTo} 行）` : ''}：\n${numbered}`);
     }
     // 附件与文档上下文是两件事：关掉文档上下文时仍然要发送附件
     if (attList.length) {
@@ -731,7 +899,7 @@ function numberedLines(lines, startNo) {
               ? `- 图片附件：${a.name}（图片内容已作为多模态输入一同发送，请直接观察图片）`
               : `- 图片附件：${a.name}（仅提供路径 ${a.path}，无法看到图片内容）`;
           }
-          return `- 文件附件：${a.name}\n${a.text || '（无可用文本）'}`;
+          return `- 文件附件：${a.name}${a.truncated ? `（仅发送前 ${MAX_TEXT_ATTACH} 字，其余不可见）` : ''}\n${a.text || '（无可用文本）'}`;
         })
         .join('\n');
       parts.push(`用户附加的资料：\n${att}`);
@@ -786,10 +954,6 @@ function numberedLines(lines, startNo) {
     modelSel.value = activeModel || (list[0] || '');
   }
 
-  function estimateTokens(text) {
-    return Math.max(1, Math.round(String(text || '').length / 2.2));
-  }
-
   async function cancelStream() {
     if (!streamRequestId) return;
     try {
@@ -800,6 +964,10 @@ function numberedLines(lines, startNo) {
   async function send(text, overrideAttachments = null) {
     const content = String(text || inputEl.value || '').trim();
     if (!content || busy) return;
+    pushInputHistory(content);
+    historyCursor = -1;
+    const suggested = recommendSkill(content);
+    if (suggested) toast(tr('chat.skillSuggest', { n: suggested.name }), { duration: 3500 });
     const s = ensureSession();
     const usedAttachments = overrideAttachments || attachments.map((a) => ({ ...a }));
     if (s.messages.length === 0) s.title = titleFrom(content);
@@ -824,11 +992,23 @@ function numberedLines(lines, startNo) {
     updateSendState();
 
     try {
-      const history = s.messages
+      const rawHistory = s.messages
         .filter((m) => m.status !== 'error' && m !== assistantMsg)
-        .slice(-9)
         .map((m) => ({ role: m.role, content: m.content }));
-      const skill = getSkill(onceSkillId || pinnedSkillId);
+      const history = selectHistory(rawHistory, 6000);
+      // 多技能叠加：所有固定技能 + 本次斜杠技能，限制总长度防止 prompt 膨胀
+      const activeSkills = [...pinnedSkillIds.map((id) => getSkill(id)), onceSkillId ? getSkill(onceSkillId) : null]
+        .filter(Boolean);
+      let skillBudget = 6000;
+      const skillPrompts = [];
+      for (const sk of activeSkills) {
+        const promptText = fillSkillVariables(sk.prompt, skillValues[sk.id]);
+        const chunk = `\n当前启用的技能：${sk.name}\n${promptText}`.slice(0, skillBudget);
+        if (chunk.length < 20) break;
+        skillPrompts.push(chunk);
+        skillBudget -= chunk.length;
+      }
+      const skill = skillPrompts.length ? { name: activeSkills[0].name } : null;
       const system = [
         '你是 FeatherMark 编辑器内的 Markdown 协作 Agent。回答要简洁、具体、可执行。',
         '默认使用简体中文；用户用英文提问时用英文回答。',
@@ -837,7 +1017,7 @@ function numberedLines(lines, startNo) {
         'REPLACE 起-止\n新内容（可多行）\nDELETE 起-止\nINSERT N\n新内容（可多行）\nEND',
         '行号必须取自带行号的原文；只输出改动行，没改的行不要重复。只是问问题时正常回答，不要输出编辑指令。',
         webSearch ? '\n本次已开启联网搜索：事实性、时效性或需要查证的问题请先联网检索再回答，并在相关句子后给出来源链接。' : '',
-        skill ? `\n当前启用的技能：${skill.name}\n${skill.prompt}` : '',
+        skillPrompts.join(''),
       ]
         .filter(Boolean)
         .join('\n');
@@ -876,6 +1056,8 @@ function numberedLines(lines, startNo) {
       streamRequestId = requestId;
       assistantMsg.status = webSearch ? 'searching' : 'streaming';
       renderMessages();
+      let searchState = webSearch ? 'pending' : 'off';
+      let searchError = '';
       const unlisten = await listen('ai-chat-stream', (event) => {
         const p = event.payload || {};
         if (p.request_id !== requestId) return;
@@ -886,7 +1068,11 @@ function numberedLines(lines, startNo) {
             renderMessages();
           }
         } else if (p.type === 'search_error') {
-          toast(tr('chat.searchFail') + ' ' + String(payload.message || ''), { error: true, duration: 5000 });
+          searchState = 'failed';
+          searchError = String(payload.message || '');
+          toast(tr('chat.searchFail') + ' ' + searchError, { error: true, duration: 5000 });
+        } else if (p.type === 'search_done') {
+          searchState = 'ok';
         } else if (p.type === 'thinking') {
           if (!assistantMsg.content) {
             assistantMsg.status = 'thinking';
@@ -903,8 +1089,10 @@ function numberedLines(lines, startNo) {
 
       let res;
       try {
+        const writeIntent = /(写|创作|扩写|续写|翻译|rewrite|translate|写一篇|起草)/i.test(content);
+        const budgetKind = writeIntent ? 'write' : 'chat';
         res = await ipc.aiChatStream(requestId, messages, {
-          maxTokens: 2048, temperature: 0.3, webSearch,
+          maxTokens: outputBudget(budgetKind), temperature: 0.3, webSearch,
         });
       } finally {
         unlisten();
@@ -920,7 +1108,16 @@ function numberedLines(lines, startNo) {
       assistantMsg.finishReason = res.finish_reason;
       // 联网来源：后端结构化的 url_citation + 正文里的链接标注，去重后随会话持久化
       const cites = extractCitations(assistantMsg.content, res.citations);
-      if (cites.length) assistantMsg.citations = cites;
+      if (cites.length) {
+        assistantMsg.citations = cites;
+        // 把正文里的 [1] [2] 编号标注转成指向来源的可点击链接
+        assistantMsg.content = linkCitationMarks(assistantMsg.content, cites);
+      }
+      // 固化联网状态：失败或未联网时明确标记，避免用户误以为已查证
+      if (webSearch) {
+        assistantMsg.searchState = searchState;
+        if (searchState === 'failed') assistantMsg.searchError = searchError;
+      }
       userMsg.status = res.cancelled ? 'stopped' : 'sent';
       userMsg.attachments.forEach((a) => (a.status = res.cancelled ? 'ready' : 'sent'));
       s.updatedAt = Date.now();
@@ -1003,12 +1200,15 @@ function numberedLines(lines, startNo) {
     }
     items.push({ title: tr('chat.skillsHint') });
     for (const skill of all) {
-      const pinned = pinnedSkillId === skill.id;
+      const pinned = pinnedSkillIds.includes(skill.id);
       items.push({ title: `${pinned ? '● ' : '○ '}${skill.name} — ${skill.description || tr('noDesc')}` });
       items.push({
         label: pinned ? tr('chat.skillUnpin', { n: skill.name }) : tr('chat.skillPin', { n: skill.name }),
         onClick: () => {
-          pinnedSkillId = pinned ? null : skill.id;
+          if (pinned) pinnedSkillIds = pinnedSkillIds.filter((id) => id !== skill.id);
+          else if (pinnedSkillIds.length < 5) pinnedSkillIds.push(skill.id); // 最多 5 个，防止 prompt 膨胀
+          else { toast(tr('chat.tooManySkills'), { error: true }); return; }
+          savePinnedSkills();
           updateSkillChip();
           toast(pinned ? tr('chat.skillDisabled', { n: skill.name }) : tr('chat.skillPinned', { n: skill.name }));
         },
@@ -1020,25 +1220,42 @@ function numberedLines(lines, startNo) {
     showMenu(anchor, items);
   }
 
-  function useSkill(id, once = false) {
+  const skillValues = {}; // 技能 {{变量}} 的取值，按技能 id 存，随会话使用
+  async function useSkill(id, once = false) {
     const skill = getSkill(id);
     if (!skill) return;
+    // 含 {{变量}} 的技能：逐个询问取值（promptDialog 返回 Promise）
+    const vars = skillVariables(skill.prompt);
+    if (vars.length) {
+      for (const v of vars) {
+        const val = await promptDialog({ title: tr('chat.skillVarTitle', { v }), label: skill.name, value: skillValues[id]?.[v] || '' });
+        if (val == null) return;
+        (skillValues[id] ||= {})[v] = String(val);
+      }
+    }
     if (once) {
       onceSkillId = id;
       toast(tr('chat.skillThisTime', { n: skill.name }));
     } else {
-      pinnedSkillId = id;
+      if (!pinnedSkillIds.includes(id)) {
+        if (pinnedSkillIds.length >= 5) { toast(tr('chat.tooManySkills'), { error: true }); return; }
+        pinnedSkillIds.push(id);
+        savePinnedSkills();
+      }
     }
     updateSkillChip();
-    if (!inputEl.value.trim()) fillPrompt(`${skill.prompt}\n\n请根据当前文档上下文回答。`);
+    if (!inputEl.value.trim()) fillPrompt(`${fillSkillVariables(skill.prompt, skillValues[id])}\n\n请根据当前文档上下文回答。`);
     inputEl.focus();
   }
 
   function updateSkillChip() {
-    const skill = getSkill(pinnedSkillId) || (onceSkillId ? getSkill(onceSkillId) : null);
-    const once = !pinnedSkillId && !!onceSkillId;
-    skillChip.textContent = skill ? `${once ? tr('chat.once') : tr('chat.skill')}：${skill.name}` : tr('chat.skill');
-    skillChip.classList.toggle('on', !!skill);
+    const pinned = pinnedSkillIds.map((id) => getSkill(id)).filter(Boolean);
+    const once = onceSkillId ? getSkill(onceSkillId) : null;
+    const names = [...pinned.map((s) => s.name), ...(once ? [once.name] : [])];
+    skillChip.textContent = names.length
+      ? `${once && !pinned.length ? tr('chat.once') : tr('chat.skill')}：${names.join('、')}${names.length > 2 ? ` +${names.length - 2}` : ''}`
+      : tr('chat.skill');
+    skillChip.classList.toggle('on', names.length > 0);
   }
 
   // 输入框里敲 "/" 弹出技能列表，选中后带走输入框里的 "/xxx"，技能只作用于本次请求
@@ -1103,8 +1320,8 @@ function numberedLines(lines, startNo) {
       item.className = 'skills-list-item' + (editingSkillId === sk.id ? ' on' : '');
       const pin = document.createElement('span');
       pin.className = 'skills-list-pin';
-      pin.textContent = pinnedSkillId === sk.id ? '●' : '○';
-      pin.title = pinnedSkillId === sk.id ? tr('chat.skillEnabled') : tr('chat.skillNotEnabled');
+      pin.textContent = pinnedSkillIds.includes(sk.id) ? '●' : '○';
+      pin.title = pinnedSkillIds.includes(sk.id) ? tr('chat.skillEnabled') : tr('chat.skillNotEnabled');
       const name = document.createElement('span');
       name.className = 'skills-list-name';
       name.textContent = sk.name;
@@ -1142,7 +1359,8 @@ function numberedLines(lines, startNo) {
       editingSkillId
     );
     if (!r.ok) { formMessage(r.error, true); return; }
-    if (pinnedSkillId === editingSkillId) pinnedSkillId = r.skill.id;
+    pinnedSkillIds = pinnedSkillIds.map((id) => id === editingSkillId ? r.skill.id : id);
+    savePinnedSkills();
     if (onceSkillId === editingSkillId) onceSkillId = r.skill.id;
     editingSkillId = r.skill.id;
     updateSkillChip();
@@ -1261,6 +1479,11 @@ function numberedLines(lines, startNo) {
 
   // 事件绑定
   $('chat-new').addEventListener('click', () => newSession());
+  $('chat-search-session').addEventListener('click', async () => {
+    const q = await promptDialog({ title: tr('chat.searchSession'), label: tr('chat.searchSessionHint'), value: sessionFilter });
+    sessionFilter = String(q || '').trim();
+    renderSessions();
+  });
   $('chat-close').addEventListener('click', () => setOpen(false));
   $('chat-templates').addEventListener('click', (e) => showTemplates(e.currentTarget));
   $('chat-edit').addEventListener('click', (e) => showEditTemplates(e.currentTarget));
@@ -1349,7 +1572,8 @@ function numberedLines(lines, startNo) {
       { title: tr('chat.skillDeleteConfirm', { n: sk.name }) },
       { label: tr('delete'), onClick: () => {
         deleteSkill(sk.id);
-        if (pinnedSkillId === sk.id) pinnedSkillId = null;
+        pinnedSkillIds = pinnedSkillIds.filter((id) => id !== sk.id);
+        savePinnedSkills();
         if (onceSkillId === sk.id) onceSkillId = null;
         updateSkillChip();
         showSkillEditor(null);
@@ -1360,6 +1584,61 @@ function numberedLines(lines, startNo) {
   $('skill-export').addEventListener('click', exportCurrentSkill);
 
   inputEl.addEventListener('input', updateSendState);
+  /** 根据用户输入与技能 name/description 的关键词重合度推荐技能（不自动启用，只提示）。 */
+  function recommendSkill(text) {
+    const q = String(text || '').toLowerCase();
+    if (q.length < 4 || pinnedSkillIds.length || onceSkillId) return null;
+    let best = null; let bestScore = 0;
+    for (const sk of listSkills()) {
+      const terms = `${sk.name} ${sk.description || ''}`.toLowerCase().split(/[\s,，、/·]+/).filter((t) => t.length >= 2);
+      let score = 0;
+      for (const t of terms) if (q.includes(t)) score += t.length;
+      if (score > bestScore) { bestScore = score; best = sk; }
+    }
+    return bestScore >= 4 ? best : null;
+  }
+
+  /** 输入 @ 时列出工作区 Markdown 文件供引用，选中后作为附件加入。 */
+  async function handleAtMention() {
+    const ws = getWorkspace();
+    if (!ws || ws === '__global__') return false;
+    try {
+      const root = await ipc.listDir(ws);
+      const files = (root.entries || root || [])
+        .filter((e) => !e.is_dir && /\.(md|markdown|txt)$/i.test(e.name))
+        .slice(0, 60);
+      if (!files.length) return false;
+      showMenu(inputEl, files.map((f) => ({
+        label: f.name,
+        hint: '@引用',
+        onClick: () => {
+          // 把 @文件名 插到光标处，并把文件作为附件加入
+          const pos = inputEl.selectionStart;
+          const before = inputEl.value.slice(0, pos).replace(/@[^@\s]*$/, '');
+          inputEl.value = before + '@' + f.name + ' ' + inputEl.value.slice(pos);
+          inputEl.focus();
+          addPaths([f.path]);
+        },
+      })));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  let lastAtPos = -1;
+  inputEl.addEventListener('input', () => {
+    const pos = inputEl.selectionStart;
+    const before = inputEl.value.slice(0, pos);
+    const at = before.lastIndexOf('@');
+    if (at >= 0 && pos - at <= 20 && !/\s/.test(before.slice(at + 1)) && at !== lastAtPos) {
+      lastAtPos = at;
+      handleAtMention();
+    } else if (at < 0 || /\s/.test(before.slice(at + 1))) {
+      lastAtPos = -1;
+    }
+  });
+
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
       // 让字符先落到输入框，再判断是否弹技能菜单
@@ -1368,6 +1647,18 @@ function numberedLines(lines, startNo) {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       send();
+    }
+    // ↑ 在光标位于首行时召回上一条输入历史（不干扰正常编辑）
+    if (e.key === 'ArrowUp' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const pos = inputEl.selectionStart;
+      if (pos === 0 || inputEl.value.indexOf('\n', 0, pos) < 0) {
+        const next = historyPrev();
+        if (next != null) { e.preventDefault(); inputEl.value = next; inputEl.setSelectionRange(next.length, next.length); }
+      }
+    }
+    if (e.key === 'ArrowDown' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const next = historyNext();
+      if (next != null) { e.preventDefault(); inputEl.value = next; inputEl.setSelectionRange(next.length, next.length); }
     }
   });
   sendBtn.addEventListener('click', () => {

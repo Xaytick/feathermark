@@ -27,7 +27,12 @@ const citeModule = { exports: {} };
 new Function('module', 'exports', 'require', citeBuilt.code)(citeModule, citeModule.exports, () => {
   throw new Error('unexpected require');
 });
-const { extractCitations } = citeModule.exports;
+const { extractCitations, linkCitationMarks } = citeModule.exports;
+const tokenSrc = fs.readFileSync(path.join(root, 'src/app/token-budget.js'), 'utf8');
+const tokenBuilt = await esbuild.transform(tokenSrc, { loader: 'js', format: 'cjs', platform: 'node' });
+const tokenModule = { exports: {} };
+new Function('module', 'exports', 'require', tokenBuilt.code)(tokenModule, tokenModule.exports, () => { throw new Error('unexpected require'); });
+const { estimateTokens, outputBudget, selectHistory } = tokenModule.exports;
 
 let passed = 0;
 function test(name, fn) {
@@ -126,6 +131,49 @@ test('无来源时返回空数组', () => {
 test('超过 12 个来源时截断', () => {
   const many = Array.from({ length: 20 }, (_, i) => ({ url: `https://x.com/${i}` }));
   assert.equal(extractCitations('', many).length, 12);
+});
+
+console.log('\nskillVariables — 技能变量');
+const skillsSrc = fs.readFileSync(path.join(root, 'src/app/skills.js'), 'utf8');
+const skillsBuilt = await esbuild.transform(skillsSrc, { loader: 'js', format: 'cjs', platform: 'node' });
+const skillsModule = { exports: {} };
+new Function('module', 'exports', 'require', skillsBuilt.code)(skillsModule, skillsModule.exports, () => { throw new Error('unexpected require'); });
+test('提取并填充 {{变量}}', () => {
+  const vars = skillsModule.exports.skillVariables('用{{语言}}写一段关于{{主题}}的介绍，{{主题}}要具体');
+  assert.deepEqual(vars, ['语言', '主题']);
+  const filled = skillsModule.exports.fillSkillVariables('用{{语言}}写{{主题}}', { 语言: '中文', 主题: 'AI' });
+  assert.equal(filled, '用中文写AI');
+});
+
+console.log('\nlinkCitationMarks — 编号转可点击来源');
+test('[n] 转成指向对应来源的链接', () => {
+  const cites = [{ url: 'https://a.com', title: 'A' }, { url: 'https://b.com', title: 'B' }];
+  const out = linkCitationMarks('结论[1]另有说法[2]。', cites);
+  assert.equal(out, '结论[1](https://a.com)另有说法[2](https://b.com)。');
+});
+test('无效编号与已链接编号不重复处理', () => {
+  const cites = [{ url: 'https://a.com', title: 'A' }];
+  assert.equal(linkCitationMarks('无效[9]与已有[1](https://x.com)', cites), '无效[9]与已有[1](https://x.com)');
+});
+
+console.log('\nestimateTokens / selectHistory — token 预算');
+test('中文估算约为英文的 3-4 倍', () => {
+  const zh = estimateTokens('这是一段中文文本');
+  const en = estimateTokens('this is english text');
+  assert.ok(zh > en, `zh=${zh} en=${en}`);
+});
+test('写作预算高于问答预算', () => {
+  assert.ok(outputBudget('write') > outputBudget('chat'));
+});
+test('历史按预算保留最近消息', () => {
+  const history = [
+    { role: 'user', content: '一'.repeat(5000) },
+    { role: 'assistant', content: '旧回答' },
+    { role: 'user', content: '新问题' },
+  ];
+  const kept = selectHistory(history, 100);
+  assert.ok(kept.length >= 1);
+  assert.equal(kept[kept.length - 1].content, '新问题');
 });
 
 console.log(`\n${passed} 项通过` + (process.exitCode ? '（有失败）' : ''));

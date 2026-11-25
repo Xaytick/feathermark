@@ -51,3 +51,18 @@ export function extractCitations(content, structured) {
 
   return out;
 }
+
+/**
+ * 把正文里的 [n] 编号标注转成 Markdown 链接，指向 citations[n-1] 的 URL。
+ * 只在编号有效且未被链接包裹时替换；返回处理后的正文。
+ */
+export function linkCitationMarks(content, citations) {
+  const text = String(content || '');
+  if (!Array.isArray(citations) || !citations.length) return text;
+  return text.replace(/(^|[^\w[\]])\[(\d{1,2})\](?!\()/g, (whole, pre, num) => {
+    const idx = Number(num) - 1;
+    const cite = citations[idx];
+    if (!cite || !/^https?:\/\//i.test(cite.url)) return whole;
+    return `${pre}[${num}](${cite.url})`;
+  });
+}

@@ -342,10 +342,18 @@ fn collect_citations(j: &serde_json::Value) -> Vec<serde_json::Value> {
 }
 
 /// 联网检索结果：标题、链接、摘要。
+#[derive(Clone)]
 struct SearchHit {
     title: String,
     url: String,
     content: String,
+}
+
+/// 搜索结果短时缓存（进程内，5 分钟）：同一问题重复提问不重复扣 API 额度。
+type SearchCache = Mutex<HashMap<String, (Instant, Vec<SearchHit>)>>;
+static SEARCH_CACHE: std::sync::OnceLock<SearchCache> = std::sync::OnceLock::new();
+fn search_cache() -> &'static SearchCache {
+    SEARCH_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// 调用搜索 API（默认 Tavily）检索。返回 (来源列表, 注入模型的资料文本)。
@@ -358,6 +366,15 @@ async fn web_search_call(cfg: &AiConfig, query: &str) -> Result<(Vec<SearchHit>,
     let q = query.trim();
     if q.is_empty() {
         return Err("没有可检索的问题".to_string());
+    }
+    // 命中 5 分钟内的缓存直接用
+    if let Ok(mut cache) = search_cache().lock() {
+        if let Some((at, hits)) = cache.get(q) {
+            if at.elapsed() < Duration::from_secs(300) && !hits.is_empty() {
+                return Ok((hits.clone(), format_search_material(hits)));
+            }
+        }
+        cache.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(300));
     }
     let body = serde_json::json!({
         "query": q,
@@ -399,14 +416,22 @@ async fn web_search_call(cfg: &AiConfig, query: &str) -> Result<(Vec<SearchHit>,
     if hits.is_empty() {
         return Err("搜索没有返回可用结果".to_string());
     }
-    // 拼成给模型看的资料文本，带编号便于模型在回答里标注 [1] [2]
+    let material = format_search_material(&hits);
+    if let Ok(mut cache) = search_cache().lock() {
+        cache.insert(q.to_string(), (Instant::now(), hits.clone()));
+    }
+    Ok((hits, material))
+}
+
+/// 把检索结果拼成给模型看的资料文本，带编号便于模型在回答里标注 [1] [2]。
+fn format_search_material(hits: &[SearchHit]) -> String {
     let mut material = String::from("以下是联网检索到的资料，请据此回答；引用时可在句末标注 [编号]：\n");
     for (i, h) in hits.iter().enumerate() {
         material.push_str(&format!("\n[{}] {}\n链接：{}\n内容：{}\n", i + 1,
             if h.title.is_empty() { &h.url } else { &h.title }, h.url,
             truncate(&h.content, 900)));
     }
-    Ok((hits, material))
+    material
 }
 
 /// 从消息列表里取最后一条用户消息作为检索词（多模态 content 取其中的 text）。
@@ -428,6 +453,33 @@ fn last_user_text(messages: &[ChatMessage]) -> String {
         }
     }
     String::new()
+}
+
+/// 把用户问题清洗成搜索词：去掉「帮我/请/写成…」这类指令前缀与文档上下文标记，
+/// 保留可检索的实体与问题本身。不做模型调用，避免额外延迟。
+fn refine_search_query(text: &str) -> String {
+    let mut q = text.trim();
+    // 去掉开头的礼貌/指令前缀
+    for prefix in ["请", "帮我", "麻烦", "能不能", "可否", "please ", "help me ", "can you "] {
+        if q.to_lowercase().starts_with(&prefix.to_lowercase()) {
+            q = q[prefix.len()..].trim_start();
+            break;
+        }
+    }
+    // 有「关于/查一下/查证」等引导词时取其后内容
+    for marker in ["关于", "查一下", "查证", "搜索", "检索", "search for ", "look up "] {
+        if let Some(pos) = q.to_lowercase().find(&marker.to_lowercase()) {
+            let rest = q[pos + marker.len()..].trim();
+            if rest.len() >= 2 { q = rest; break }
+        }
+    }
+    // 截断过长的查询（Tavily 对超长 query 效果差）
+    let q = if q.chars().count() > 160 {
+        q.chars().take(160).collect::<String>()
+    } else {
+        q.to_string()
+    };
+    q.trim().to_string()
 }
 
 /// 流式请求的取消标记。每个 request_id 一个 AtomicBool，前端点「停止」时置 true。
@@ -503,7 +555,7 @@ pub async fn ai_chat_stream(
     let mut web_citations: Vec<serde_json::Value> = Vec::new();
     if web_search {
         emit_stream(&app, &request_id, "searching", serde_json::json!({}));
-        let query = last_user_text(&messages);
+        let query = refine_search_query(&last_user_text(&messages));
         match web_search_call(&cfg, &query).await {
             Ok((hits, material)) => {
                 web_citations = hits.iter().map(|h| serde_json::json!({
