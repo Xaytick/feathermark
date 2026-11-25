@@ -738,6 +738,13 @@ export function createSettings({ body, onApply }) {
     keyInput.placeholder = tr('set.keyPlaceholder');
     keyInput.spellcheck = false;
 
+    // 联网搜索（Tavily）API Key：空白表示保持原 key 不变
+    const searchKeyInput = document.createElement('input');
+    searchKeyInput.type = 'password';
+    searchKeyInput.placeholder = tr('set.searchKeyPlaceholder');
+    searchKeyInput.spellcheck = false;
+    searchKeyInput.title = tr('set.searchKeyHint');
+
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn';
     saveBtn.textContent = tr('set.saveAndTest');
@@ -778,6 +785,7 @@ export function createSettings({ body, onApply }) {
     wrap.appendChild(wideRow(tr('set.model'), tr('set.modelDesc'), chips));
     wrap.appendChild(wideRow(tr('set.addModelRow'), tr('set.addModelRowDesc'), addRow));
     wrap.appendChild(wideRow('API Key', tr('set.keyDesc'), keyInput));
+    wrap.appendChild(wideRow(tr('set.searchKey'), tr('set.searchKeyDesc'), searchKeyInput));
     wrap.appendChild(
       wideRow(tr('set.extraBody'), tr('set.extraBodyDesc'), extraInput)
     );
@@ -862,6 +870,9 @@ export function createSettings({ body, onApply }) {
         modelInput.value = aiCfg.model || '';
         keyInput.value = '';
         keyInput.placeholder = aiCfg.has_key ? tr('set.keySaved', { k: aiCfg.key_hint }) : tr('set.keyPlaceholder2');
+        searchKeyInput.value = '';
+        searchKeyInput.placeholder = aiCfg.has_search_key
+          ? tr('set.keySaved', { k: aiCfg.search_key_hint }) : tr('set.searchKeyPlaceholder');
         extraInput.value = aiCfg.extra_body || '{}';
         skipToggle.classList.toggle('on', !!aiCfg.skip_temperature);
         syncModelsFromConfig(aiCfg.model);
@@ -883,6 +894,8 @@ export function createSettings({ body, onApply }) {
           baseUrl: baseInput.value,
           model: modelInput.value,
           apiKey: keyInput.value || null,
+          searchApiKey: searchKeyInput.value || null,
+          searchApiUrl: 'https://api.tavily.com/search',
           temperature: 0.3,
           maxTokens: 4096,
           extraBody: extraInput.value || '{}',
@@ -916,6 +929,8 @@ export function createSettings({ body, onApply }) {
           baseUrl: baseInput.value,
           model: modelInput.value,
           apiKey: keyInput.value || null,
+          searchApiKey: searchKeyInput.value || null,
+          searchApiUrl: 'https://api.tavily.com/search',
           temperature: 0.3,
           maxTokens: 4096,
           extraBody: extraInput.value || '{}',
@@ -926,6 +941,7 @@ export function createSettings({ body, onApply }) {
         result.style.color = 'var(--accent)';
         result.textContent = tr('set.connectionOk', { m: r.model, ms: r.latency_ms });
         keyInput.value = '';
+        searchKeyInput.value = '';
         load();
       } catch (e) {
         result.style.color = '#e5484d';

@@ -36,6 +36,16 @@ pub struct AiConfig {
     /// 有些模型（Kimi K3、GLM-5.3 等）固定温度或拒绝 temperature，必须整个字段不发
     #[serde(default)]
     pub skip_temperature: bool,
+    /// 联网检索用的搜索 API Key（Tavily），只存本机，不进 WebView 明文
+    #[serde(default)]
+    pub search_api_key: String,
+    /// 搜索 API 端点（默认 Tavily），可改自建 SearXNG 等兼容端点
+    #[serde(default = "default_search_api_url")]
+    pub search_api_url: String,
+}
+
+fn default_search_api_url() -> String {
+    "https://api.tavily.com/search".to_string()
 }
 
 fn default_temperature() -> f32 {
@@ -59,6 +69,8 @@ impl Default for AiConfig {
             max_tokens: default_max_tokens(),
             extra_body: default_extra_body(),
             skip_temperature: false,
+            search_api_key: String::new(),
+            search_api_url: default_search_api_url(),
         }
     }
 }
@@ -117,6 +129,11 @@ pub fn ai_config_get(app: tauri::AppHandle) -> Result<serde_json::Value, String>
         "skip_temperature": cfg.skip_temperature,
         "has_key": !cfg.api_key.is_empty(),
         "key_hint": hint,
+        "search_api_url": cfg.search_api_url,
+        "has_search_key": !cfg.search_api_key.is_empty(),
+        "search_key_hint": if cfg.search_api_key.len() >= 4 {
+            format!("••••{}", &cfg.search_api_key[cfg.search_api_key.len() - 4..])
+        } else { String::new() },
         "config_dir": config_path(&app)?.to_string_lossy().to_string(),
     }))
 }
@@ -133,6 +150,8 @@ pub fn ai_config_set(
     max_tokens: Option<u32>,
     extra_body: Option<String>,
     skip_temperature: Option<bool>,
+    search_api_key: Option<String>,
+    search_api_url: Option<String>,
 ) -> Result<(), String> {
     let mut cfg = load_config(&app)?;
     cfg.provider = provider;
@@ -164,6 +183,20 @@ pub fn ai_config_set(
     }
     if let Some(skip) = skip_temperature {
         cfg.skip_temperature = skip;
+    }
+    if let Some(k) = search_api_key {
+        let k = k.trim().to_string();
+        if !k.is_empty() {
+            cfg.search_api_key = k;
+        }
+    }
+    if let Some(u) = search_api_url {
+        let u = u.trim();
+        cfg.search_api_url = if u.is_empty() {
+            default_search_api_url()
+        } else {
+            u.to_string()
+        };
     }
     save_config(&app, &cfg)
 }
@@ -260,7 +293,6 @@ fn build_stream_body(
     messages: Vec<ChatMessage>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
-    web_search: bool,
 ) -> Result<serde_json::Value, String> {
     let mut body = serde_json::json!({
         "model": cfg.model,
@@ -270,12 +302,6 @@ fn build_stream_body(
     });
     if !cfg.skip_temperature {
         body["temperature"] = serde_json::json!(temperature.unwrap_or(cfg.temperature));
-    }
-    // 联网搜索：不同 OpenAI 兼容服务商字段各异，这里放最常见的一组。
-    // 未知字段通常被忽略，用户仍可用 extra_body 覆盖或补充服务商特定字段。
-    if web_search {
-        body["web_search"] = serde_json::json!(true);
-        body["web_search_options"] = serde_json::json!({});
     }
     merge_extras(body, cfg)
 }
@@ -313,6 +339,95 @@ fn collect_citations(j: &serde_json::Value) -> Vec<serde_json::Value> {
         }
     }
     out
+}
+
+/// 联网检索结果：标题、链接、摘要。
+struct SearchHit {
+    title: String,
+    url: String,
+    content: String,
+}
+
+/// 调用搜索 API（默认 Tavily）检索。返回 (来源列表, 注入模型的资料文本)。
+/// 失败时返回 Err，调用方降级为「不联网」继续对话，不阻断用户。
+async fn web_search_call(cfg: &AiConfig, query: &str) -> Result<(Vec<SearchHit>, String), String> {
+    let key = cfg.search_api_key.trim();
+    if key.is_empty() {
+        return Err("未配置搜索 API Key：请到 设置 → AI → 联网搜索填入 Tavily API Key".to_string());
+    }
+    let q = query.trim();
+    if q.is_empty() {
+        return Err("没有可检索的问题".to_string());
+    }
+    let body = serde_json::json!({
+        "query": q,
+        "search_depth": "basic",
+        "max_results": 5,
+        "topic": "general",
+    });
+    let resp = client()?
+        .post(&cfg.search_api_url)
+        .bearer_auth(key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("搜索请求失败：{}", friendly_error(&e)))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let hint = match status.as_u16() {
+            401 | 403 => "（搜索 API Key 无效或无权限）",
+            429 => "（搜索额度用尽或触发限流）",
+            _ => "",
+        };
+        return Err(format!("搜索接口返回 {} {}{} {}", status.as_u16(), status.canonical_reason().unwrap_or(""), hint, truncate(text.trim(), 200)));
+    }
+    let j: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("搜索结果解析失败：{}", e))?;
+    let mut hits = Vec::new();
+    if let Some(arr) = j.get("results").and_then(|v| v.as_array()) {
+        for item in arr {
+            let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let url = item.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let content = item.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if url.starts_with("http") {
+                hits.push(SearchHit { title, url, content });
+            }
+            if hits.len() >= 5 { break }
+        }
+    }
+    if hits.is_empty() {
+        return Err("搜索没有返回可用结果".to_string());
+    }
+    // 拼成给模型看的资料文本，带编号便于模型在回答里标注 [1] [2]
+    let mut material = String::from("以下是联网检索到的资料，请据此回答；引用时可在句末标注 [编号]：\n");
+    for (i, h) in hits.iter().enumerate() {
+        material.push_str(&format!("\n[{}] {}\n链接：{}\n内容：{}\n", i + 1,
+            if h.title.is_empty() { &h.url } else { &h.title }, h.url,
+            truncate(&h.content, 900)));
+    }
+    Ok((hits, material))
+}
+
+/// 从消息列表里取最后一条用户消息作为检索词（多模态 content 取其中的 text）。
+fn last_user_text(messages: &[ChatMessage]) -> String {
+    for m in messages.iter().rev() {
+        if m.role != "user" { continue }
+        match &m.content {
+            serde_json::Value::String(s) => return s.clone(),
+            serde_json::Value::Array(parts) => {
+                for p in parts {
+                    if p.get("type").and_then(|t| t.as_str()) == Some("text") {
+                        if let Some(t) = p.get("text").and_then(|v| v.as_str()) {
+                            return t.to_string();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    String::new()
 }
 
 /// 流式请求的取消标记。每个 request_id 一个 AtomicBool，前端点「停止」时置 true。
@@ -382,12 +497,33 @@ pub async fn ai_chat_stream(
     }
 
     let web_search = web_search.unwrap_or(false);
-    let body = build_stream_body(&cfg, messages, max_tokens, temperature, web_search)?;
-    let cancel = stream_cancel_flag(&state, &request_id);
-    // 联网请求先告诉前端进入搜索态（正文尚未开始流出）。
+    let mut messages = messages;
+    // 检索来源（Tavily 等）：先告诉前端进入搜索态，再实际检索并把资料注入上下文。
+    // 检索失败不阻断对话——降级为普通回答，只是没有来源。
+    let mut web_citations: Vec<serde_json::Value> = Vec::new();
     if web_search {
         emit_stream(&app, &request_id, "searching", serde_json::json!({}));
+        let query = last_user_text(&messages);
+        match web_search_call(&cfg, &query).await {
+            Ok((hits, material)) => {
+                web_citations = hits.iter().map(|h| serde_json::json!({
+                    "url": h.url, "title": if h.title.is_empty() { h.url.clone() } else { h.title.clone() },
+                })).collect();
+                messages.push(ChatMessage {
+                    role: "user".to_string(),
+                    content: serde_json::json!(material),
+                });
+                emit_stream(&app, &request_id, "search_done", serde_json::json!({
+                    "n": web_citations.len(),
+                }));
+            }
+            Err(e) => {
+                emit_stream(&app, &request_id, "search_error", serde_json::json!({ "message": e }));
+            }
+        }
     }
+    let body = build_stream_body(&cfg, messages, max_tokens, temperature)?;
+    let cancel = stream_cancel_flag(&state, &request_id);
 
     let mut req = client()?
         .post(endpoint(&cfg, "chat/completions"))
@@ -427,7 +563,8 @@ pub async fn ai_chat_stream(
     let mut model = cfg.model.clone();
     let mut usage = serde_json::Value::Null;
     let mut finish_reason = String::new();
-    let mut citations: Vec<serde_json::Value> = Vec::new();
+    // 联网检索的来源优先展示；模型若也返回 url_citation，按 URL 去重后置追加。
+    let mut citations: Vec<serde_json::Value> = web_citations;
     let mut push_citations = |j: &serde_json::Value| {
         for c in collect_citations(j) {
             let url = c["url"].as_str().unwrap_or("");

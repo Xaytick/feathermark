@@ -885,6 +885,8 @@ function numberedLines(lines, startNo) {
             assistantMsg.status = 'searching';
             renderMessages();
           }
+        } else if (p.type === 'search_error') {
+          toast(tr('chat.searchFail') + ' ' + String(payload.message || ''), { error: true, duration: 5000 });
         } else if (p.type === 'thinking') {
           if (!assistantMsg.content) {
             assistantMsg.status = 'thinking';
