@@ -117,14 +117,17 @@ pub fn build_menu<R: Runtime>(app: &AppHandle<R>, locale: Locale) -> tauri::Resu
     file.append(&item(app, locale, "file.close", "关闭标签", "Close Tab", None)?)?;
 
     // ---- 编辑 ----
+    // 撤销/重做/剪切/复制/粘贴/全选必须用系统标准项（PredefinedMenuItem），
+    // macOS 才会把这些 action 接进 WebView 的 responder chain，⌘Z/⌘X/⌘C/⌘V/⌘A
+    // 才能在输入框和编辑器里原生工作。自定义 MenuItem 带 id 不会触发这些系统 action。
     let edit = sub(app, "edit", locale, "&编辑", "&Edit")?;
-    edit.append(&item(app, locale, "edit.undo", "撤销", "Undo", None)?)?;
-    edit.append(&item(app, locale, "edit.redo", "重做", "Redo", None)?)?;
+    edit.append(&PredefinedMenuItem::undo(app, Some(&t(locale, "撤销", "Undo")))?)?;
+    edit.append(&PredefinedMenuItem::redo(app, Some(&t(locale, "重做", "Redo")))?)?;
     edit.append(&sep()?)?;
-    edit.append(&item(app, locale, "edit.cut", "剪切", "Cut", None)?)?;
-    edit.append(&item(app, locale, "edit.copy", "复制", "Copy", None)?)?;
-    edit.append(&item(app, locale, "edit.paste", "粘贴", "Paste", None)?)?;
-    edit.append(&item(app, locale, "edit.select_all", "全选", "Select All", None)?)?;
+    edit.append(&PredefinedMenuItem::cut(app, Some(&t(locale, "剪切", "Cut")))?)?;
+    edit.append(&PredefinedMenuItem::copy(app, Some(&t(locale, "复制", "Copy")))?)?;
+    edit.append(&PredefinedMenuItem::paste(app, Some(&t(locale, "粘贴", "Paste")))?)?;
+    edit.append(&PredefinedMenuItem::select_all(app, Some(&t(locale, "全选", "Select All")))?)?;
     edit.append(&sep()?)?;
     edit.append(&item(app, locale, "edit.find", "查找", "Find", None)?)?;
     edit.append(&item(app, locale, "edit.find_in_files", "在工作区搜索", "Search in Workspace", None)?)?;
