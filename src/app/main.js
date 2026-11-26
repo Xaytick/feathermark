@@ -157,6 +157,7 @@ function applyLayout() {
   // 分屏模式的右侧 preview-pane 需要渲染；预览模式走编辑器内 WYSIWYG，不需要
   // 分屏切换后 CM 尺寸变了要 refresh，否则光标定位会漂
   if (prefs.viewMode === 'split') scheduleRender();
+  else if (preview) preview.highlightCursorLine(0); // 离开分屏时隐藏光标标记
   setTimeout(() => editor && editor.refresh(), 30);
 }
 
