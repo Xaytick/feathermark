@@ -612,12 +612,15 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 
 /* 光标行在预览区的对应标记：覆盖层，不占布局、不拦截交互。
    左侧竖条指示精确位置，整块淡背景便于对照源码，圆角与渐隐避免遮挡文字。 */
+/* 覆盖层放在文字「下方」：编辑区 .cm-activeLine 是行背景（在字下），
+   标记层必须同样在字下，否则半透明色叠在文字上会显得更深、与编辑区不一致。 */
+#preview > *:not(.fm-cursor-mark) { position: relative; z-index: 1; }
 .fm-cursor-mark {
   position: absolute;
   left: -12px;
   right: -6px;
   pointer-events: none;
-  z-index: 2;
+  z-index: 0;
   border-radius: 4px;
   background: var(--accent-soft);
   transition: top 90ms ease, height 90ms ease;
