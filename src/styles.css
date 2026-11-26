@@ -457,7 +457,7 @@ html[data-os='macos'] #titlebar::before {
   min-height: 0;
   background: var(--bg);
 }
-/* 源码（仅编辑）模式：预览与分隔条隐藏，编辑器须占满，不能留半屏空白 */
+/* 源码模式：预览与分隔条隐藏，编辑器须占满，不能留半屏空白 */
 #workspace.mode-editor #preview-pane,
 #workspace.mode-editor #splitter-main { display: none; }
 #workspace.mode-editor #editor-pane { width: 100%; }
@@ -2202,7 +2202,7 @@ html[data-theme-studio] #preview { position: relative; z-index: 1; }
    文字始终是 CM6 文档内容，mark decoration 隐藏语法标记并套样式；
    编辑/光标/选区由 CM6 原生管理，零闪烁零跳变。 */
 /* 滚动兜底：flex 布局里若某层缺 min-height:0 或 overflow，触控板滚轮会整段失效。
-   显式声明滚动容器，保证分屏/仅编辑/仅预览三种模式下都能滚。 */
+   显式声明滚动容器，保证分屏/源码/预览三种模式下都能滚。 */
 .cm-editor { height: 100%; }
 .cm-editor .cm-scroller { overflow: auto !important; overscroll-behavior: contain; }
 #preview-scroll { overflow: auto; overscroll-behavior: contain; min-height: 0; }
@@ -2284,4 +2284,13 @@ html[data-theme-studio] body .cm-editor .cm-gutters {
 html[data-theme-studio] body .cm-editor .cm-gutterElement { color: var(--ed-fg-faint) !important; }
 html[data-theme-studio] body .cm-editor .cm-activeLineGutter {
   color: var(--ed-accent, var(--ed-fg)) !important;
+}
+/* 当前行高亮：与预览区光标标记统一用强调色淡背景。
+   CM6 默认给 .cm-activeLine 注入了硬编码灰蓝底（.cm-focused 下才明显），
+   这里用 !important 覆盖，保证源码模式/预览模式/分屏左栏三处一致。 */
+html body .cm-editor .cm-activeLine {
+  background: var(--accent-soft) !important;
+}
+html[data-theme-studio] body .cm-editor .cm-activeLine {
+  background: var(--ed-active-line, var(--accent-soft)) !important;
 }
