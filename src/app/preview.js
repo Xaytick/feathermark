@@ -68,6 +68,14 @@ export function createPreview({ el, scrollEl, prefs, onOpenFile, onTaskToggle, o
   let blocks = [];
   let currentDir = '';
 
+  // 光标位置标记层：绝对定位在预览内容上，pointer-events:none 不遮挡点击/选中/任务列表。
+  // 光标移动时定位到对应源码行的预览块，左侧竖条 + 整块淡色背景，随滚动自然移动。
+  const cursorMark = document.createElement('div');
+  cursorMark.className = 'fm-cursor-mark hidden';
+  cursorMark.innerHTML = '<span class="fm-cursor-mark-bar"></span>';
+  el.appendChild(cursorMark);
+  let markedLine = 0;
+
   // mermaid 单例有内部状态（id 生成器、当前配置）。并发 run 会交错读写它，
   // 表现就是「切主题后图不见了」——所以这里照搬参考实现的两条护栏：
   //   1) 全局串行队列，同一时刻只跑一个 run；
@@ -261,6 +269,8 @@ export function createPreview({ el, scrollEl, prefs, onOpenFile, onTaskToggle, o
     }
     if (token !== renderToken) return;
     el.innerHTML = html;
+    // innerHTML 会清掉标记层，重新挂回去并按上次行号恢复高亮
+    el.appendChild(cursorMark);
 
     resolveResources();
     renderMath();
@@ -339,6 +349,32 @@ export function createPreview({ el, scrollEl, prefs, onOpenFile, onTaskToggle, o
     scrollEl.scrollTop = Math.max(0, b.top - 8);
   }
 
+  /**
+   * 把光标所在源码行对应的预览块高亮：整块淡背景 + 左侧竖条标记。
+   * 只移动覆盖层，不改预览内容 DOM；pointer-events:none 不遮挡交互。
+   * @param {number} line 1 基源码行号；传 0/falsy 表示隐藏标记
+   */
+  function highlightCursorLine(line) {
+    markedLine = line || 0;
+    const b = markedLine ? blockAtLine(markedLine) : null;
+    if (!b || !b.el || !b.el.isConnected) {
+      cursorMark.classList.add('hidden');
+      return;
+    }
+    // rect 差值计算相对 el 内容框的位置（块可能在嵌套结构里，比 offsetTop 累加更可靠）
+    const hostRect = el.getBoundingClientRect();
+    const blockRect = b.el.getBoundingClientRect();
+    const top = blockRect.top - hostRect.top;
+    const height = blockRect.height;
+    if (!(height > 0)) {
+      cursorMark.classList.add('hidden');
+      return;
+    }
+    cursorMark.style.top = `${top}px`;
+    cursorMark.style.height = `${height}px`;
+    cursorMark.classList.remove('hidden');
+  }
+
   return {
     el,
     scrollEl,
@@ -347,6 +383,7 @@ export function createPreview({ el, scrollEl, prefs, onOpenFile, onTaskToggle, o
     syncFromLine,
     topLineInfo,
     scrollToLine,
+    highlightCursorLine,
     refreshMermaidTheme(isDark) {
       initializedMode = null;
       initMermaid(isDark);

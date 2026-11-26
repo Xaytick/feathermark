@@ -433,6 +433,10 @@ function scheduleRender(immediate = false) {
     const outline = await preview.render(tab.doc, { docPath: tab.path });
     if (state.activeId !== snapshot) return;
     buildOutline(outline || []);
+    // 渲染重建了预览 DOM，按当前光标行恢复标记（仅分屏模式）
+    if (preview && editor && prefs.viewMode === 'split') {
+      preview.highlightCursorLine(editor.cursorLine());
+    }
   };
   if (immediate) run();
   else state.renderTimer = setTimeout(run, 170);
@@ -525,6 +529,11 @@ function updateStatusbar() {
 
 function updateCursor({ line, ch, selected }) {
   $('sb-cursor').textContent = selected ? tr('main.cursorSel', { l: line, c: ch, s: selected }) : tr('main.cursor', { l: line, c: ch });
+  // 分屏模式：预览区标记跟随编辑器光标；其他模式隐藏（避免预览模式下 WYSIWYG 里误显示）
+  if (preview) {
+    if (prefs.viewMode === 'split') preview.highlightCursorLine(line);
+    else preview.highlightCursorLine(0);
+  }
 }
 
 function updateEmpty() {

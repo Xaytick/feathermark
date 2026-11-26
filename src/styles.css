@@ -608,7 +608,43 @@ html[data-mode='dark'] .cm-s-default .cm-variable-3, html[data-mode='dark'] .cm-
 #workspace.mode-editor #preview-pane { border: none; }
 
 #preview-scroll { flex: 1; overflow: auto; }
-#preview { padding: 26px 34px 45vh; max-width: 860px; margin: 0 auto; }
+#preview { padding: 26px 34px 45vh; max-width: 860px; margin: 0 auto; position: relative; }
+
+/* 光标行在预览区的对应标记：覆盖层，不占布局、不拦截交互。
+   左侧竖条指示精确位置，整块淡背景便于对照源码，圆角与渐隐避免遮挡文字。 */
+.fm-cursor-mark {
+  position: absolute;
+  left: -12px;
+  right: -6px;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  transition: top 90ms ease, height 90ms ease;
+}
+.fm-cursor-mark.hidden { display: none; }
+.fm-cursor-mark-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.fm-cursor-mark-bar::after {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+}
 
 /* ---------------------------------------------------------------- 6. 预览排版 */
 .markdown-body {
