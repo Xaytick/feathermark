@@ -482,6 +482,14 @@ fn refine_search_query(text: &str) -> String {
     q.trim().to_string()
 }
 
+/// 在字节缓冲里查找子串位置（UTF-8 安全：只在字节层比较 ASCII 分隔符）。
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
 /// 流式请求的取消标记。每个 request_id 一个 AtomicBool，前端点「停止」时置 true。
 #[derive(Default)]
 pub struct StreamCancels(pub Mutex<HashMap<String, Arc<AtomicBool>>>);
@@ -610,7 +618,10 @@ pub async fn ai_chat_stream(
         return Err(msg);
     }
 
-    let mut buf = String::new();
+    // 字节缓冲：UTF-8 汉字占 3 字节，TCP 分包可能把一个字切到两个 chunk。
+    // 若对每个 chunk 单独 from_utf8_lossy，残缺字节会变成 U+FFFD（菱形问号乱码）。
+    // 因此按字节累积，只在完整的 "\n\n" 事件边界上严格解码。
+    let mut buf: Vec<u8> = Vec::new();
     let mut content = String::new();
     let mut model = cfg.model.clone();
     let mut usage = serde_json::Value::Null;
@@ -650,10 +661,14 @@ pub async fn ai_chat_stream(
                 return Err(msg);
             }
         };
-        buf.push_str(&String::from_utf8_lossy(&chunk));
-        while let Some(pos) = buf.find("\n\n") {
-            let event = buf[..pos].to_string();
+        buf.extend_from_slice(&chunk);
+        // 只处理到最后一个完整的事件边界；边界后的字节（可能含半个汉字）留在缓冲里等下一个 chunk。
+        while let Some(pos) = find_bytes(&buf, b"\n\n") {
+            let event_bytes = buf[..pos].to_vec();
             buf.drain(..pos + 2);
+            // 事件边界处应是完整 UTF-8；万一服务端发了非法序列，用 lossy 只影响这一条事件，
+            // 绝不会污染的后续内容（不再像之前那样逐 chunk 把半个字替换成 U+FFFD）。
+            let event = String::from_utf8_lossy(&event_bytes).into_owned();
             for line in event.lines() {
                 let Some(data) = line.strip_prefix("data:") else { continue };
                 let data = data.trim_start();
@@ -689,6 +704,26 @@ pub async fn ai_chat_stream(
                     // 推理型模型会先输出 reasoning_content；不展示原文，只让用户知道模型在思考
                     if !reasoning.is_empty() {
                         emit_stream(&app, &request_id, "thinking", serde_json::json!({}));
+                    }
+                }
+            }
+        }
+    }
+
+    // 流结束后处理残留事件（某些服务端最后一个 data 事件不带结尾空行）
+    if !buf.is_empty() {
+        let event = String::from_utf8_lossy(&buf).into_owned();
+        for line in event.lines() {
+            if let Some(data) = line.strip_prefix("data:") {
+                let data = data.trim_start();
+                if data == "[DONE]" { continue; }
+                if let Ok(j) = serde_json::from_str::<serde_json::Value>(data) {
+                    push_citations(&j);
+                    if let Some(delta) = j["choices"][0]["delta"]["content"].as_str() {
+                        if !delta.is_empty() {
+                            content.push_str(delta);
+                            emit_stream(&app, &request_id, "chunk", serde_json::json!({ "delta": delta }));
+                        }
                     }
                 }
             }
